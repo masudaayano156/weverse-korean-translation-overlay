@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Weverse 한국어 라이브 번역 오버레이",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "description": "큐티스트리트 인간 번역기의 공개 실시간·보관 번역을 위버스 생방송과 다시보기 영상 위에 표시합니다.",
   "permissions": [
     "storage"

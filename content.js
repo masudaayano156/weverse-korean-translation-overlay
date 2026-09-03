@@ -472,6 +472,12 @@
         font-weight: 800;
       }
 
+      .quick-sync-heading-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       .quick-sync-value {
         color: #7dd3fc;
         font-variant-numeric: tabular-nums;
@@ -890,6 +896,15 @@
         cursor: pointer;
       }
 
+      .sync-button small {
+        display: block;
+        margin-top: 1px;
+        color: #94a3b8;
+        font-size: 8px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
       .sync-button:hover,
       .sync-button:focus-visible {
         color: #fff;
@@ -1065,7 +1080,7 @@
 
         <div id="quick-sync-bar" class="quick-sync-bar" hidden>
           <div class="quick-sync-heading">
-            <span>자막 싱크 빠른 조절</span>
+            <span id="quick-sync-heading-label" class="quick-sync-heading-label">자막 싱크 빠른 조절</span>
             <output id="quick-sync-value" class="quick-sync-value">0.0초</output>
           </div>
           <div class="quick-sync-controls" aria-label="자막 싱크 빠른 조절">
@@ -1090,19 +1105,19 @@
           <div id="settings" class="settings" hidden>
             <div id="live-delay-section" class="setting-section" hidden>
               <div class="setting-label">
-                <span>라이브 자막 지연</span>
+                <span>라이브 자막 싱크</span>
                 <output id="live-delay-value" class="setting-value">0.0초 · 즉시</output>
               </div>
               <div class="sync-controls">
-                <button id="live-delay-much-less-button" class="sync-button" type="button">−5초</button>
-                <button id="live-delay-one-less-button" class="sync-button" type="button">−1초</button>
-                <button id="live-delay-less-button" class="sync-button" type="button">−0.5초</button>
-                <button id="live-delay-zero-button" class="sync-button" type="button">0초</button>
-                <button id="live-delay-more-button" class="sync-button" type="button">+0.5초</button>
-                <button id="live-delay-one-more-button" class="sync-button" type="button">+1초</button>
-                <button id="live-delay-much-more-button" class="sync-button" type="button">+5초</button>
+                <button id="live-delay-much-less-button" class="sync-button" type="button">−5초<small>늦게</small></button>
+                <button id="live-delay-one-less-button" class="sync-button" type="button">−1초<small>늦게</small></button>
+                <button id="live-delay-less-button" class="sync-button" type="button">−0.5초<small>늦게</small></button>
+                <button id="live-delay-zero-button" class="sync-button" type="button">0초<small>즉시</small></button>
+                <button id="live-delay-more-button" class="sync-button" type="button">+0.5초<small>빠르게</small></button>
+                <button id="live-delay-one-more-button" class="sync-button" type="button">+1초<small>빠르게</small></button>
+                <button id="live-delay-much-more-button" class="sync-button" type="button">+5초<small>빠르게</small></button>
               </div>
-              <div class="sync-help">기본 0초는 도착 즉시 표시합니다. +는 더 늦게, −는 지연을 줄이며 최대 120초까지 설정됩니다.</div>
+              <div class="sync-help">현재 상태를 기준으로 −는 더 늦게, +는 더 빠르게 표시합니다. 라이브는 도착 즉시인 0초보다 앞당길 수 없으며 −120초까지 늦출 수 있습니다.</div>
             </div>
 
             <div id="subtitle-sync-section" class="setting-section" hidden>
@@ -1161,10 +1176,11 @@
 
             <div class="setting-section">
               <label class="setting-label" for="background-opacity">
-                <span>배경 불투명도</span>
-                <output id="background-opacity-value" class="setting-value">78%</output>
+                <span>배경 투명도</span>
+                <output id="background-opacity-value" class="setting-value">22%</output>
               </label>
-              <input id="background-opacity" class="range-input" type="range" min="0" max="100" step="1" value="78">
+              <input id="background-opacity" class="range-input" type="range" min="0" max="100" step="1" value="22">
+              <div class="sync-help">0%는 불투명, 100%는 완전히 투명합니다.</div>
             </div>
 
             <div class="setting-section">
@@ -1269,6 +1285,7 @@
     settingsButton: shadow.getElementById("settings-button"),
     closeButton: shadow.getElementById("close-button"),
     quickSyncBar: shadow.getElementById("quick-sync-bar"),
+    quickSyncHeadingLabel: shadow.getElementById("quick-sync-heading-label"),
     quickSyncValue: shadow.getElementById("quick-sync-value"),
     quickSyncButtons: [...shadow.querySelectorAll("[data-quick-sync-ms]")],
     sessionSelect: shadow.getElementById("session-select"),
@@ -1695,7 +1712,7 @@
     const seconds = Math.max(0, Number(delayMs) || 0) / 1000;
     return seconds === 0
       ? "0.0초 · 즉시"
-      : `${seconds.toFixed(1)}초 늦게`;
+      : `−${seconds.toFixed(1)}초 늦게`;
   }
 
   function renderLiveDelayControls() {
@@ -1703,13 +1720,13 @@
     const delayMs = Number(state.settings.liveDelayMs) || 0;
     dom.liveDelaySection.hidden = !isLive;
     dom.liveDelayValue.textContent = liveDelayLabel(delayMs);
-    dom.liveDelayMuchLessButton.disabled = !isLive || delayMs <= 0;
-    dom.liveDelayOneLessButton.disabled = !isLive || delayMs <= 0;
-    dom.liveDelayLessButton.disabled = !isLive || delayMs <= 0;
+    dom.liveDelayMuchLessButton.disabled = !isLive || delayMs >= 120000;
+    dom.liveDelayOneLessButton.disabled = !isLive || delayMs >= 120000;
+    dom.liveDelayLessButton.disabled = !isLive || delayMs >= 120000;
     dom.liveDelayZeroButton.disabled = !isLive || delayMs === 0;
-    dom.liveDelayMoreButton.disabled = !isLive || delayMs >= 120000;
-    dom.liveDelayOneMoreButton.disabled = !isLive || delayMs >= 120000;
-    dom.liveDelayMuchMoreButton.disabled = !isLive || delayMs >= 120000;
+    dom.liveDelayMoreButton.disabled = !isLive || delayMs <= 0;
+    dom.liveDelayOneMoreButton.disabled = !isLive || delayMs <= 0;
+    dom.liveDelayMuchMoreButton.disabled = !isLive || delayMs <= 0;
   }
 
   function currentReplaySyncRecord() {
@@ -1786,11 +1803,18 @@
 
   function renderReplayOffsetControls() {
     const isReplay = isReplayTranslationMode();
+    const isLive = isLiveTranslationMode();
     const replayOffsetMs = currentReplayOffsetMs();
+    const liveDelayMs = Number(state.settings.liveDelayMs) || 0;
     dom.subtitleSyncSection.hidden = !isReplay;
-    dom.quickSyncBar.hidden = !isReplay;
+    dom.quickSyncBar.hidden = !isReplay && !isLive;
     dom.subtitleOffsetValue.textContent = subtitleOffsetLabel(replayOffsetMs);
-    dom.quickSyncValue.textContent = subtitleOffsetLabel(replayOffsetMs);
+    dom.quickSyncHeadingLabel.textContent = isLive
+      ? "라이브 싱크 · − 늦게 / + 빠르게"
+      : "다시보기 조절 · − 늦게 / + 빠르게";
+    dom.quickSyncValue.textContent = isLive
+      ? liveDelayLabel(liveDelayMs)
+      : subtitleOffsetLabel(replayOffsetMs);
     dom.syncMuchSlowerButton.disabled =
       !isReplay || state.adPlaying || replayOffsetMs <= -REPLAY_OFFSET_LIMIT_MS;
     dom.syncOneSlowerButton.disabled =
@@ -1807,12 +1831,30 @@
       !isReplay || state.adPlaying || replayOffsetMs >= REPLAY_OFFSET_LIMIT_MS;
     for (const button of dom.quickSyncButtons) {
       const deltaMs = Number(button.dataset.quickSyncMs) || 0;
-      button.disabled =
-        !isReplay ||
-        state.adPlaying ||
-        (deltaMs === 0 && replayOffsetMs === 0) ||
-        (deltaMs < 0 && replayOffsetMs <= -REPLAY_OFFSET_LIMIT_MS) ||
-        (deltaMs > 0 && replayOffsetMs >= REPLAY_OFFSET_LIMIT_MS);
+      if (isLive) {
+        const seconds = Math.abs(deltaMs) / 1000;
+        button.title = deltaMs === 0
+          ? "라이브 자막을 도착 즉시 표시"
+          : `현재보다 ${seconds}초 ${deltaMs < 0 ? "늦게" : "빠르게"} 표시`;
+        button.setAttribute("aria-label", button.title);
+        button.disabled =
+          state.adPlaying ||
+          (deltaMs === 0 && liveDelayMs === 0) ||
+          (deltaMs < 0 && liveDelayMs >= 120000) ||
+          (deltaMs > 0 && liveDelayMs <= 0);
+      } else {
+        const seconds = Math.abs(deltaMs) / 1000;
+        button.title = deltaMs === 0
+          ? "이 영상 싱크를 0초로 초기화"
+          : `현재보다 ${seconds}초 ${deltaMs < 0 ? "늦게" : "빠르게"} 표시`;
+        button.setAttribute("aria-label", button.title);
+        button.disabled =
+          !isReplay ||
+          state.adPlaying ||
+          (deltaMs === 0 && replayOffsetMs === 0) ||
+          (deltaMs < 0 && replayOffsetMs <= -REPLAY_OFFSET_LIMIT_MS) ||
+          (deltaMs > 0 && replayOffsetMs >= REPLAY_OFFSET_LIMIT_MS);
+      }
     }
   }
 
@@ -1962,8 +2004,9 @@
 
     dom.fontSize.value = String(settings.fontSize);
     dom.fontSizeValue.textContent = `${settings.fontSize}px`;
-    dom.backgroundOpacity.value = String(settings.backgroundOpacity);
-    dom.backgroundOpacityValue.textContent = `${settings.backgroundOpacity}%`;
+    const backgroundTransparency = 100 - settings.backgroundOpacity;
+    dom.backgroundOpacity.value = String(backgroundTransparency);
+    dom.backgroundOpacityValue.textContent = `${backgroundTransparency}%`;
     dom.panelWidth.value = String(settings.panelWidth);
     dom.panelWidthValue.textContent = `${settings.panelWidth}px`;
     dom.textColor.value = settings.textColor;
@@ -4751,7 +4794,7 @@
     });
     dom.backgroundOpacity.addEventListener("input", () => {
       updateSettings({
-        backgroundOpacity: Number(dom.backgroundOpacity.value)
+        backgroundOpacity: 100 - Number(dom.backgroundOpacity.value)
       });
     });
     dom.panelWidth.addEventListener("input", () => {
@@ -4764,25 +4807,25 @@
       updateSettings({ textOutlineWidth: Number(dom.textOutlineWidth.value) });
     });
     dom.liveDelayMuchLessButton.addEventListener("click", () => {
-      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) - 5000);
+      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) + 5000);
     });
     dom.liveDelayOneLessButton.addEventListener("click", () => {
-      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) - 1000);
+      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) + 1000);
     });
     dom.liveDelayLessButton.addEventListener("click", () => {
-      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) - 500);
+      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) + 500);
     });
     dom.liveDelayZeroButton.addEventListener("click", () => {
       setLiveDelayMs(0);
     });
     dom.liveDelayMoreButton.addEventListener("click", () => {
-      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) + 500);
+      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) - 500);
     });
     dom.liveDelayOneMoreButton.addEventListener("click", () => {
-      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) + 1000);
+      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) - 1000);
     });
     dom.liveDelayMuchMoreButton.addEventListener("click", () => {
-      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) + 5000);
+      setLiveDelayMs((Number(state.settings.liveDelayMs) || 0) - 5000);
     });
     dom.syncMuchSlowerButton.addEventListener("click", () => {
       setReplayOffsetMs(currentReplayOffsetMs() - 5000);
@@ -4808,9 +4851,17 @@
     for (const button of dom.quickSyncButtons) {
       button.addEventListener("click", () => {
         const deltaMs = Number(button.dataset.quickSyncMs) || 0;
-        setReplayOffsetMs(
-          deltaMs === 0 ? 0 : currentReplayOffsetMs() + deltaMs
-        );
+        if (isLiveTranslationMode()) {
+          setLiveDelayMs(
+            deltaMs === 0
+              ? 0
+              : (Number(state.settings.liveDelayMs) || 0) - deltaMs
+          );
+        } else {
+          setReplayOffsetMs(
+            deltaMs === 0 ? 0 : currentReplayOffsetMs() + deltaMs
+          );
+        }
       });
     }
     dom.saveReplayAnchorButton.addEventListener(

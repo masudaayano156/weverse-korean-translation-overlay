@@ -15,6 +15,10 @@ function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex").toUpperCase();
 }
 
+function normalizeTextLineEndings(value) {
+  return Buffer.from(value.toString("utf8").replace(/\r\n?/g, "\n"), "utf8");
+}
+
 function tarEntry(archive, wantedPath) {
   let offset = 0;
   while (offset + 512 <= archive.length) {
@@ -74,15 +78,19 @@ async function main() {
   const bundleStart = localWithNotice.indexOf(Buffer.from('"use strict";'));
   assert.ok(bundleStart >= 0, "로컬 브라우저 번들 시작점을 찾지 못했습니다.");
   const localBundle = localWithNotice.subarray(bundleStart);
-  assert.deepEqual(localBundle, officialBundle, "로컬 Convex 번들이 공식 배포본과 다릅니다.");
+  assert.deepEqual(
+    normalizeTextLineEndings(localBundle),
+    normalizeTextLineEndings(officialBundle),
+    "로컬 Convex 번들이 공식 배포본과 다릅니다."
+  );
   const officialLicense = tarEntry(archive, LICENSE_PATH);
   assert.ok(officialLicense, "공식 라이선스 파일을 찾지 못했습니다.");
   const localLicense = fs.readFileSync(
     path.resolve(__dirname, "..", "LICENSES", "Apache-2.0.txt")
   );
   assert.equal(
-    localLicense.toString("utf8").trim(),
-    officialLicense.toString("utf8").trim(),
+    normalizeTextLineEndings(localLicense).toString("utf8").trim(),
+    normalizeTextLineEndings(officialLicense).toString("utf8").trim(),
     "로컬 라이선스 전문이 공식 배포본과 다릅니다."
   );
   console.log(`vendor verification: official match (${sha256(officialBundle)})`);

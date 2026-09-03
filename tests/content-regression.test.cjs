@@ -319,6 +319,38 @@ assert.match(
   bindUiEvents,
   /prefers-reduced-motion:\s*reduce[\s\S]*\?\s*"auto"\s*:\s*"smooth"/
 );
+
+// 라이브에서도 빠른 싱크 바를 제공하고, 사용자에게 보이는 싱크값은
+// 다시보기와 같이 음수=늦게/양수=빠르게여야 합니다.
+const renderReplayOffsetControls = namedFunctionSource(
+  contentSource,
+  "renderReplayOffsetControls"
+);
+assert.match(renderReplayOffsetControls, /const isLive\s*=\s*isLiveTranslationMode\(\)/);
+assert.match(
+  renderReplayOffsetControls,
+  /quickSyncBar\.hidden\s*=\s*!isReplay\s*&&\s*!isLive/
+);
+assert.match(renderReplayOffsetControls, /liveDelayMs\s*<=\s*0/);
+assert.match(renderReplayOffsetControls, /liveDelayMs\s*>=\s*120000/);
+assert.match(
+  bindUiEvents,
+  /if\s*\(isLiveTranslationMode\(\)\)[\s\S]*setLiveDelayMs\([\s\S]*liveDelayMs[\s\S]*-\s*deltaMs/
+);
+assert.match(contentSource, /−는 더 늦게, \+는 더 빠르게/);
+
+// 사용자에게 보이는 배경 슬라이더는 일반적인 투명도 의미를 사용하되
+// 기존 저장값(불투명도)은 변환해 화면 모양을 그대로 보존해야 합니다.
+assert.match(contentSource, /<span>배경 투명도<\/span>/);
+assert.match(contentSource, /0%는 불투명, 100%는 완전히 투명/);
+assert.match(
+  applySettingsToUi,
+  /backgroundTransparency\s*=\s*100\s*-\s*settings\.backgroundOpacity/
+);
+assert.match(
+  bindUiEvents,
+  /backgroundOpacity:\s*100\s*-\s*Number\(dom\.backgroundOpacity\.value\)/
+);
 assert.match(
   namedFunctionSource(contentSource, "beginDrag"),
   /state\.drag[\s\S]*state\.resize[\s\S]*event\.isPrimary\s*===\s*false/
