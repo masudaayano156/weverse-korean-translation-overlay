@@ -23,6 +23,21 @@
   const ARCHIVE_REFRESH_MS = 30000;
   const REPLAY_OFFSET_LIMIT_MS = 10 * 60 * 1000;
   const REPLAY_CLOCK_VERSION = 4;
+  const REACTION_CLIENT_ID_KEY = "weverseOverlayReactionClientIdV1";
+  const REACTION_KEYS = Object.freeze([
+    { key: "clap", emoji: "🥹", label: "귀여워" },
+    { key: "heart", emoji: "❤️", label: "사랑해요" },
+    { key: "lol", emoji: "😂", label: "ㅋㅋㅋㅋ" },
+    { key: "sob", emoji: "😭", label: "슬퍼요" },
+    { key: "fire", emoji: "🔥", label: "개쩐다" },
+    { key: "wow", emoji: "😮", label: "헐" }
+  ]);
+  const REACTION_BY_KEY = new Map(
+    REACTION_KEYS.map((reaction) => [reaction.key, reaction])
+  );
+  const MAX_SEEN_REACTION_IDS = 500;
+  const MAX_REACTION_SNAPSHOT = 100;
+  const MAX_FLOATING_REACTIONS = 24;
 
   const state = {
     settings: core.normalizeSettings(),
@@ -44,6 +59,7 @@
     routeGeneration: 0,
     broadcastInfo: null,
     replayAnchors: {},
+    recognizedLiveReplayPostIds: new Set(),
     anchorOptionsKey: null,
     adPlaying: false,
     manualSessionPath: null,
@@ -69,6 +85,7 @@
     messageAutoScrollPending: false,
     liveReleaseTimer: null,
     liveReleasedThrough: null,
+    reactionClientId: "",
     qualityEnableEpoch: 0,
     qualityRunKey: null,
     qualityRunState: "idle",
@@ -146,6 +163,54 @@
         pointer-events: auto;
         isolation: isolate;
         transition: opacity 100ms ease;
+        z-index: 2;
+      }
+
+      .reaction-layer {
+        position: fixed;
+        z-index: 1;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      .reaction-layer[hidden] {
+        display: none !important;
+      }
+
+      .reaction-float {
+        position: fixed;
+        left: var(--reaction-x);
+        top: var(--reaction-y);
+        display: block;
+        filter: drop-shadow(0 4px 7px rgba(0, 0, 0, 0.55));
+        font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+        font-size: clamp(30px, 4vw, 48px);
+        line-height: 1;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+        animation: reaction-float var(--reaction-duration, 1700ms) ease-out forwards;
+        will-change: transform, opacity;
+      }
+
+      @keyframes reaction-float {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -20%) scale(0.62) rotate(-7deg);
+        }
+        16% {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1.08) rotate(4deg);
+        }
+        100% {
+          opacity: 0;
+          transform: translate(
+            calc(-50% + var(--reaction-drift, 0px)),
+            calc(-50% - var(--reaction-lift, 170px))
+          ) scale(1.18) rotate(-4deg);
+        }
       }
 
       .panel[hidden] {
@@ -257,6 +322,11 @@
 
       .panel.video-click-priority .quick-sync-bar {
         display: none !important;
+      }
+
+      .panel.video-click-priority .reaction-bar,
+      .panel.video-click-priority .reaction-button {
+        pointer-events: auto;
       }
 
       .resize-handle {
@@ -769,6 +839,81 @@
         -webkit-backdrop-filter: blur(6px);
       }
 
+      .panel.reactions-enabled .latest-message-button {
+        bottom: 72px;
+      }
+
+      .panel.minimal.reactions-enabled .latest-message-button {
+        bottom: 48px;
+      }
+
+      .reaction-bar {
+        display: grid;
+        flex: 0 0 auto;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 4px;
+        padding: 5px 8px 6px;
+        background: rgba(255, 255, 255, 0.035);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        pointer-events: auto;
+      }
+
+      .reaction-bar[hidden] {
+        display: none !important;
+      }
+
+      .reaction-button {
+        min-width: 0;
+        height: 31px;
+        padding: 0;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        border-radius: 8px;
+        font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 100ms ease, border-color 100ms ease,
+          transform 100ms ease;
+      }
+
+      .reaction-button:hover,
+      .reaction-button:focus-visible {
+        background: rgba(56, 189, 248, 0.2);
+        border-color: rgba(125, 211, 252, 0.72);
+        outline: none;
+        transform: translateY(-1px);
+      }
+
+      .reaction-button:active,
+      .reaction-button.sent {
+        transform: scale(0.9);
+      }
+
+      .reaction-button:disabled {
+        opacity: 0.42;
+        cursor: default;
+      }
+
+      .panel.minimal .reaction-bar {
+        align-self: center;
+        width: min(100%, 320px);
+        padding: 4px;
+        background: rgba(8, 10, 15, 0.76);
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 10px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(7px);
+        -webkit-backdrop-filter: blur(7px);
+      }
+
+      .panel.minimal .reaction-button {
+        height: 30px;
+        background: transparent;
+        border-color: transparent;
+      }
+
       .status-bar {
         display: flex;
         flex: 0 0 auto;
@@ -805,6 +950,7 @@
       .panel.settings-open .translator-credit,
       .panel.settings-open .empty-state,
       .panel.settings-open .status-bar,
+      .panel.settings-open .reaction-bar,
       .panel.settings-open .latest-message-button {
         display: none !important;
       }
@@ -1055,10 +1201,15 @@
         .message.new-message {
           animation: none;
         }
+
+        .reaction-float {
+          animation-duration: 650ms;
+        }
       }
     </style>
 
     <div id="overlay-root">
+      <div id="reaction-layer" class="reaction-layer" aria-hidden="true"></div>
       <section id="panel" class="panel" role="region" aria-label="한국어 실시간 번역" hidden>
         <header id="drag-handle" class="header" title="끌어서 위치 이동">
           <span id="connection-dot" class="connection-dot" aria-hidden="true"></span>
@@ -1242,7 +1393,7 @@
               </label>
             </div>
 
-            <div class="settings-save-note">영상 클릭 우선은 자막 본문이 마우스를 가로채지 않게 하며 상단 버튼은 계속 사용할 수 있습니다. 불투명도 0%와 테두리 끔을 함께 쓰면 글자만 남습니다.</div>
+            <div class="settings-save-note">영상 클릭 우선은 자막 본문이 마우스를 가로채지 않게 하며 상단 버튼은 계속 사용할 수 있습니다. 배경 투명도 100%와 테두리 끔을 함께 쓰면 글자만 남습니다.</div>
             <div class="settings-footer">
               <button id="reset-button" class="reset-button" type="button">표시 설정 초기화</button>
               <button id="save-view-button" class="save-view-button" type="button">저장하고 번역 보기</button>
@@ -1254,6 +1405,14 @@
           <div id="subtitle-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
           <button id="latest-message-button" class="latest-message-button" type="button" title="가장 최근 자막으로 이동" aria-label="가장 최근 자막으로 이동" hidden>↓ 최신 자막</button>
           <div id="empty-state" class="empty-state">진행 중인 한국어 번역을 찾고 있습니다.</div>
+          <div id="reaction-bar" class="reaction-bar" role="group" aria-label="인간 번역기 라이브 리액션" title="누르면 현재 공개 번역 세션에 익명 리액션이 전송됩니다." hidden>
+            <button class="reaction-button" type="button" data-reaction-key="clap" title="귀여워" aria-label="귀여워">🥹</button>
+            <button class="reaction-button" type="button" data-reaction-key="heart" title="사랑해요" aria-label="사랑해요">❤️</button>
+            <button class="reaction-button" type="button" data-reaction-key="lol" title="ㅋㅋㅋㅋ" aria-label="ㅋㅋㅋㅋ">😂</button>
+            <button class="reaction-button" type="button" data-reaction-key="sob" title="슬퍼요" aria-label="슬퍼요">😭</button>
+            <button class="reaction-button" type="button" data-reaction-key="fire" title="개쩐다" aria-label="개쩐다">🔥</button>
+            <button class="reaction-button" type="button" data-reaction-key="wow" title="헐" aria-label="헐">😮</button>
+          </div>
           <footer class="status-bar">
             <span id="status-text" class="status-text">연결 준비 중…</span>
             <span id="drag-hint" class="drag-hint">제목: 이동 · 테두리: 크기</span>
@@ -1274,6 +1433,7 @@
 
   const dom = {
     panel: shadow.getElementById("panel"),
+    reactionLayer: shadow.getElementById("reaction-layer"),
     restoreButton: shadow.getElementById("restore-button"),
     dragHandle: shadow.getElementById("drag-handle"),
     connectionDot: shadow.getElementById("connection-dot"),
@@ -1342,13 +1502,41 @@
     resizeHandles: [...shadow.querySelectorAll("[data-resize]")],
     messages: shadow.getElementById("messages"),
     latestMessageButton: shadow.getElementById("latest-message-button"),
+    reactionBar: shadow.getElementById("reaction-bar"),
+    reactionButtons: [...shadow.querySelectorAll("[data-reaction-key]")],
     emptyState: shadow.getElementById("empty-state"),
     statusText: shadow.getElementById("status-text"),
     dragHint: shadow.getElementById("drag-hint")
   };
 
+  function broadcastRouteMatch(route = location.pathname) {
+    return /^\/[^/]+\/(live|media)\/([0-9]+-[0-9]+)\/?$/.exec(
+      String(route || "")
+    );
+  }
+
   function isLiveRoute() {
-    return /^\/[^/]+\/live\/[^/]+/.test(location.pathname);
+    const match = broadcastRouteMatch();
+    if (!match) {
+      return false;
+    }
+    if (match[1] === "live") {
+      return true;
+    }
+    const postId = match[2];
+    const hasLiveReplayEvidence = Boolean(
+      hookedTimings.get(match[2])?.liveToVod === true ||
+      document.querySelector('[class*="live-chat-list"]')
+    );
+    if (hasLiveReplayEvidence) {
+      state.recognizedLiveReplayPostIds.add(postId);
+      while (state.recognizedLiveReplayPostIds.size > 20) {
+        state.recognizedLiveReplayPostIds.delete(
+          state.recognizedLiveReplayPostIds.values().next().value
+        );
+      }
+    }
+    return hasLiveReplayEvidence || state.recognizedLiveReplayPostIds.has(postId);
   }
 
   function waitForInitialPageContent() {
@@ -1443,10 +1631,7 @@
   const hookedTimings = new Map();
 
   function postIdFromRoute(route) {
-    const match = /^\/[^/]+\/live\/([0-9]+-[0-9]+)\/?$/.exec(
-      String(route || "")
-    );
-    return match ? match[1] : null;
+    return broadcastRouteMatch(route)?.[2] || null;
   }
 
   function requestHookedTiming() {
@@ -1532,6 +1717,10 @@
         forceMessages: true
       });
     }
+    applySettingsToUi();
+    if (state.settings.visible && isLiveRoute()) {
+      void refreshSessions({ forceMessages: true });
+    }
     renderReplaySyncControls();
     syncMessagesToPlayback({ force: true, forceBottom: false });
   });
@@ -1560,12 +1749,50 @@
     });
   }
 
+  function isValidReactionClientId(value) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      String(value || "")
+    );
+  }
+
+  function readReactionClientId() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([REACTION_CLIENT_ID_KEY], (result) => {
+        if (chrome.runtime.lastError) {
+          resolve("");
+          return;
+        }
+        const storedId = result?.[REACTION_CLIENT_ID_KEY];
+        resolve(isValidReactionClientId(storedId) ? storedId : "");
+      });
+    });
+  }
+
+  function persistReactionClientId(clientId) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set(
+        { [REACTION_CLIENT_ID_KEY]: clientId },
+        () => resolve(!chrome.runtime.lastError)
+      );
+    });
+  }
+
+  async function ensureReactionClientId() {
+    if (isValidReactionClientId(state.reactionClientId)) {
+      return state.reactionClientId;
+    }
+    const clientId = crypto.randomUUID();
+    state.reactionClientId = clientId;
+    await persistReactionClientId(clientId);
+    return clientId;
+  }
+
   function normalizeReplayAnchors(rawAnchors) {
     const raw = rawAnchors && typeof rawAnchors === "object" ? rawAnchors : {};
     const normalized = {};
     for (const [route, anchor] of Object.entries(raw)) {
       if (
-        !/^\/[^/]+\/live\/[^/]+$/.test(route) ||
+        !/^\/[^/]+\/(?:live|media)\/[0-9]+-[0-9]+\/?$/.test(route) ||
         !anchor ||
         typeof anchor !== "object" ||
         typeof anchor.sessionId !== "string" ||
@@ -1706,6 +1933,101 @@
       (!state.selectedSession.live && state.broadcastInfo?.live !== true) ||
       state.broadcastInfo?.live === false
     );
+  }
+
+  function liveReactionsEnabled() {
+    return Boolean(
+      state.settings.visible &&
+      !state.settingsOpen &&
+      !dom.panel.hidden &&
+      isLiveRoute() &&
+      isLiveTranslationMode()
+    );
+  }
+
+  function renderReactionControls() {
+    const enabled = liveReactionsEnabled();
+    dom.reactionLayer.hidden =
+      !enabled || dom.panel.classList.contains("player-menu-overlap");
+    dom.reactionBar.hidden = !enabled;
+    dom.panel.classList.toggle("reactions-enabled", enabled);
+    if (!enabled) {
+      dom.reactionLayer.replaceChildren();
+    }
+    for (const button of dom.reactionButtons) {
+      button.disabled = !enabled;
+    }
+  }
+
+  function reactionOrigin(sourceButton) {
+    const sourceRect = sourceButton?.getBoundingClientRect?.();
+    const playerRect = state.boundPlayerRoot?.getBoundingClientRect?.() ||
+      state.boundVideo?.getBoundingClientRect?.();
+    const sourceCenter = sourceRect
+      ? {
+          x: sourceRect.left + sourceRect.width / 2,
+          y: sourceRect.top + sourceRect.height / 2
+        }
+      : null;
+    if (
+      sourceCenter &&
+      playerRect &&
+      sourceCenter.x >= playerRect.left &&
+      sourceCenter.x <= playerRect.right &&
+      sourceCenter.y >= playerRect.top &&
+      sourceCenter.y <= playerRect.bottom
+    ) {
+      return sourceCenter;
+    }
+    if (playerRect?.width > 0 && playerRect?.height > 0) {
+      return {
+        x: playerRect.right - Math.min(54, playerRect.width * 0.12),
+        y: playerRect.bottom - Math.min(76, playerRect.height * 0.18)
+      };
+    }
+    if (sourceCenter) {
+      return sourceCenter;
+    }
+    return {
+      x: window.innerWidth * 0.82,
+      y: window.innerHeight * 0.78
+    };
+  }
+
+  function showReaction(reactionKey, sourceButton = null) {
+    const reaction = REACTION_BY_KEY.get(reactionKey);
+    if (
+      !reaction ||
+      !liveReactionsEnabled() ||
+      dom.panel.classList.contains("player-menu-overlap")
+    ) {
+      return;
+    }
+    const origin = reactionOrigin(sourceButton);
+    const float = document.createElement("span");
+    float.className = "reaction-float";
+    float.textContent = reaction.emoji;
+    float.style.setProperty("--reaction-x", `${Math.round(origin.x)}px`);
+    float.style.setProperty("--reaction-y", `${Math.round(origin.y)}px`);
+    float.style.setProperty(
+      "--reaction-drift",
+      `${Math.round((Math.random() - 0.5) * 72)}px`
+    );
+    float.style.setProperty(
+      "--reaction-lift",
+      `${Math.round(145 + Math.random() * 55)}px`
+    );
+    float.style.setProperty(
+      "--reaction-duration",
+      `${Math.round(1450 + Math.random() * 420)}ms`
+    );
+    while (dom.reactionLayer.childElementCount >= MAX_FLOATING_REACTIONS) {
+      dom.reactionLayer.firstElementChild?.remove();
+    }
+    dom.reactionLayer.appendChild(float);
+    const remove = () => float.remove();
+    float.addEventListener("animationend", remove, { once: true });
+    setTimeout(remove, 2400);
   }
 
   function liveDelayLabel(delayMs) {
@@ -2034,6 +2356,7 @@
     }
     scheduleLiveRelease();
     renderReplaySyncControls();
+    renderReactionControls();
     requestPlacement();
   }
 
@@ -2124,6 +2447,7 @@
     }
     renderLiveDelayControls();
     renderReplaySyncControls();
+    renderReactionControls();
   }
 
   const LIVE_SYNC_INITIAL_RETRY_MS = 2000;
@@ -2137,6 +2461,10 @@
     messagesUnsubscribe: null,
     messagesKey: null,
     messagesReadyKey: null,
+    reactionsUnsubscribe: null,
+    reactionsKey: null,
+    reactionsReadyKey: null,
+    seenReactionIds: new Set(),
     lastSessions: null,
     sessionsRevision: 0,
     appliedGeneration: null,
@@ -2170,8 +2498,24 @@
     }
   }
 
+  function stopReactionsSubscription() {
+    const unsubscribe = liveSync.reactionsUnsubscribe;
+    liveSync.reactionsUnsubscribe = null;
+    liveSync.reactionsKey = null;
+    liveSync.reactionsReadyKey = null;
+    liveSync.seenReactionIds.clear();
+    if (typeof unsubscribe === "function") {
+      try {
+        unsubscribe();
+      } catch (_error) {
+        // 이미 닫힌 구독은 무시합니다.
+      }
+    }
+  }
+
   function closeLiveSyncClient() {
     stopMessagesSubscription();
+    stopReactionsSubscription();
     const connectionUnsubscribe = liveSync.connectionUnsubscribe;
     liveSync.connectionUnsubscribe = null;
     if (typeof connectionUnsubscribe === "function") {
@@ -2404,6 +2748,93 @@
     );
   }
 
+  function reactionId(reaction) {
+    const value = String(reaction?.tapId || reaction?._id || "");
+    return /^[a-z0-9_-]{8,128}$/i.test(value) ? value : "";
+  }
+
+  function rememberReactionId(id) {
+    if (!id) {
+      return;
+    }
+    liveSync.seenReactionIds.add(id);
+    while (liveSync.seenReactionIds.size > MAX_SEEN_REACTION_IDS) {
+      liveSync.seenReactionIds.delete(liveSync.seenReactionIds.values().next().value);
+    }
+  }
+
+  function applyReactionSnapshot(value, key) {
+    const reactions = Array.isArray(value)
+      ? value.filter(
+          (reaction) =>
+            reactionId(reaction) && REACTION_BY_KEY.has(reaction?.key)
+        ).slice(0, MAX_REACTION_SNAPSHOT)
+      : [];
+    if (liveSync.reactionsReadyKey !== key) {
+      for (const reaction of reactions) {
+        rememberReactionId(reactionId(reaction));
+      }
+      liveSync.reactionsReadyKey = key;
+      return;
+    }
+    for (const reaction of [...reactions].reverse()) {
+      const id = reactionId(reaction);
+      if (liveSync.seenReactionIds.has(id)) {
+        continue;
+      }
+      rememberReactionId(id);
+      showReaction(reaction.key);
+    }
+  }
+
+  function syncReactionsSubscription() {
+    const client = liveSync.client;
+    const session = state.selectedSession;
+    if (
+      !client ||
+      !session ||
+      !core.isValidSessionId(session._id) ||
+      !state.settings.visible ||
+      !isLiveRoute() ||
+      !isLiveTranslationMode()
+    ) {
+      stopReactionsSubscription();
+      return;
+    }
+    const key = `${state.routeGeneration}:${session._id}`;
+    if (key === liveSync.reactionsKey) {
+      return;
+    }
+    stopReactionsSubscription();
+    liveSync.reactionsKey = key;
+    const requestGeneration = state.routeGeneration;
+    liveSync.reactionsUnsubscribe = client.onUpdate(
+      "reactions:recent",
+      { sessionId: session._id },
+      (value) => {
+        if (
+          liveSync.client !== client ||
+          requestGeneration !== state.routeGeneration ||
+          state.selectedSession?._id !== session._id ||
+          liveSync.reactionsKey !== key
+        ) {
+          return;
+        }
+        markLiveSyncHealthy();
+        applyReactionSnapshot(value, key);
+      },
+      () => {
+        if (
+          liveSync.client === client &&
+          requestGeneration === state.routeGeneration &&
+          state.selectedSession?._id === session._id
+        ) {
+          stopReactionsSubscription();
+        }
+      }
+    );
+  }
+
   function syncMessagesSubscription({ force = false } = {}) {
     const client = convexClient();
     const session = state.selectedSession;
@@ -2415,8 +2846,10 @@
       !isLiveRoute()
     ) {
       stopMessagesSubscription();
+      stopReactionsSubscription();
       return;
     }
+    syncReactionsSubscription();
     const limit = core.messageSubscriptionLimit(session.messageCount);
     const key = `${state.routeGeneration}:${session._id}:${limit}`;
     if (!force && key === liveSync.messagesKey) {
@@ -2560,10 +2993,15 @@
       sessionBecameArchive ||
       archiveMetadataChanged;
 
+    if (!isLiveTranslationMode()) {
+      stopReactionsSubscription();
+    }
+
     if (sessionChanged) {
       clearLiveReleaseTimer();
       state.liveReleasedThrough = null;
       stopMessagesSubscription();
+      stopReactionsSubscription();
       state.messageApplyRevision += 1;
       state.messageForcePending = false;
       state.lastArchiveMessageRefreshAt = 0;
@@ -2590,6 +3028,7 @@
 
     if (!state.selectedSession) {
       stopMessagesSubscription();
+      stopReactionsSubscription();
       clearLiveReleaseTimer();
       state.liveReleasedThrough = null;
       state.messages = [];
@@ -4090,11 +4529,13 @@
   function updatePlayerMenuAvoidance() {
     if (dom.panel.hidden) {
       dom.panel.classList.remove("player-menu-overlap");
+      dom.reactionLayer.hidden = true;
       return;
     }
     const root = playerUiRoot();
     if (!root) {
       dom.panel.classList.remove("player-menu-overlap");
+      dom.reactionLayer.hidden = !liveReactionsEnabled();
       return;
     }
     const panelRect = dom.panel.getBoundingClientRect();
@@ -4117,6 +4558,7 @@
           );
         });
     dom.panel.classList.toggle("player-menu-overlap", menuOverlaps);
+    dom.reactionLayer.hidden = !liveReactionsEnabled() || menuOverlaps;
   }
 
   function schedulePlayerMenuAvoidance() {
@@ -4696,6 +5138,44 @@
     );
   }
 
+  async function sendReaction(reactionKey, button) {
+    const reaction = REACTION_BY_KEY.get(reactionKey);
+    const sessionId = state.selectedSession?._id || "";
+    if (
+      !reaction ||
+      !liveReactionsEnabled() ||
+      !core.isValidSessionId(sessionId)
+    ) {
+      return;
+    }
+
+    const tapId = crypto.randomUUID();
+    rememberReactionId(tapId);
+    showReaction(reactionKey, button);
+    button.classList.add("sent");
+    setTimeout(() => button.classList.remove("sent"), 150);
+
+    try {
+      const client = convexClient();
+      if (!client || typeof client.mutation !== "function") {
+        throw new Error("실시간 연결을 준비하지 못했습니다.");
+      }
+      const clientId = await ensureReactionClientId();
+      await client.mutation("reactions:react", {
+        sessionId,
+        key: reactionKey,
+        clientId,
+        tapId
+      });
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? `리액션 전송 실패 · ${error.message}`
+          : "리액션을 전송하지 못했습니다."
+      );
+    }
+  }
+
   function bindUiEvents() {
     dom.settingsButton.addEventListener("click", () => {
       state.settingsOpen = !state.settingsOpen;
@@ -4761,6 +5241,7 @@
       clearLiveReleaseTimer();
       state.liveReleasedThrough = null;
       stopMessagesSubscription();
+      stopReactionsSubscription();
       state.messageApplyRevision += 1;
       state.messageForcePending = false;
       state.lastArchiveMessageRefreshAt = 0;
@@ -4862,6 +5343,11 @@
             deltaMs === 0 ? 0 : currentReplayOffsetMs() + deltaMs
           );
         }
+      });
+    }
+    for (const button of dom.reactionButtons) {
+      button.addEventListener("click", () => {
+        void sendReaction(button.dataset.reactionKey, button);
       });
     }
     dom.saveReplayAnchorButton.addEventListener(
@@ -5025,7 +5511,17 @@
       }
     }
 
-    if (!state.settings.visible || !isLiveRoute()) {
+    const liveRoute = isLiveRoute();
+    const shouldHidePanel = !state.settings.visible || !liveRoute;
+    const shouldHideRestore = state.settings.visible || !liveRoute;
+    if (
+      dom.panel.hidden !== shouldHidePanel ||
+      dom.restoreButton.hidden !== shouldHideRestore
+    ) {
+      applySettingsToUi();
+    }
+
+    if (!state.settings.visible || !liveRoute) {
       clearLiveReleaseTimer();
       stopLiveSync({ clearSessions: true });
       return;
@@ -5098,12 +5594,14 @@
   async function initialize() {
     ensureHostParent();
     bindUiEvents();
-    const [storedSettings, replayAnchors] = await Promise.all([
+    const [storedSettings, replayAnchors, reactionClientId] = await Promise.all([
       readStoredSettings(),
-      readReplayAnchors()
+      readReplayAnchors(),
+      readReactionClientId()
     ]);
     state.settings = core.normalizeSettings(storedSettings);
     state.replayAnchors = replayAnchors;
+    state.reactionClientId = reactionClientId;
     persistReplayAnchors();
     if (
       !storedSettings ||

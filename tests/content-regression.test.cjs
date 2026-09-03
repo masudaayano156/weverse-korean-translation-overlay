@@ -154,6 +154,57 @@ assert.match(
   /hasLiveLabel[\s\S]*duration\s*===\s*Infinity[\s\S]*Number\.isFinite\(duration\)[\s\S]*:\s*null/
 );
 
+// 위버스의 지난 라이브는 /media/ 주소로도 열립니다. 일반 미디어까지
+// 오인하지 않도록 liveToVod 또는 LIVE 채팅 목록이 있을 때만 허용합니다.
+const broadcastRouteMatch = namedFunctionSource(
+  contentSource,
+  "broadcastRouteMatch"
+);
+assert.match(broadcastRouteMatch, /\(live\|media\)/);
+assert.match(
+  namedFunctionSource(contentSource, "postIdFromRoute"),
+  /broadcastRouteMatch\(route\)\?\.\[2\]/
+);
+const isLiveRoute = namedFunctionSource(contentSource, "isLiveRoute");
+assert.match(isLiveRoute, /match\[1\]\s*===\s*"live"/);
+assert.match(isLiveRoute, /liveToVod\s*===\s*true/);
+assert.match(isLiveRoute, /live-chat-list/);
+assert.match(
+  namedFunctionSource(contentSource, "normalizeReplayAnchors"),
+  /\(\?:live\|media\)/
+);
+assert.match(
+  namedFunctionSource(contentSource, "handleRouteOrVisibilityTick"),
+  /dom\.panel\.hidden\s*!==\s*shouldHidePanel[\s\S]*applySettingsToUi\(\)/
+);
+let hasLiveChatList = false;
+const routeContext = {
+  location: { pathname: "/kawaii_lab/media/3-240169475" },
+  hookedTimings: new Map(),
+  state: { recognizedLiveReplayPostIds: new Set() },
+  document: {
+    querySelector(selector) {
+      assert.equal(selector, '[class*="live-chat-list"]');
+      return hasLiveChatList ? {} : null;
+    }
+  }
+};
+vm.runInNewContext(
+  `${broadcastRouteMatch}\n${isLiveRoute}\nthis.isLiveRoute = isLiveRoute;`,
+  routeContext
+);
+assert.equal(routeContext.isLiveRoute(), false, "일반 /media/ 영상은 제외해야 합니다.");
+hasLiveChatList = true;
+assert.equal(routeContext.isLiveRoute(), true, "LIVE 채팅 다시보기는 허용해야 합니다.");
+hasLiveChatList = false;
+assert.equal(
+  routeContext.isLiveRoute(),
+  true,
+  "확인된 지난 라이브는 DOM 재렌더 중에도 사라지면 안 됩니다."
+);
+routeContext.location.pathname = "/kawaii_lab/live/1-179514847";
+assert.equal(routeContext.isLiveRoute(), true, "/live/ 방송은 계속 허용해야 합니다.");
+
 // 구독 제한은 메시지 한 건마다 바뀌지 않고 단계적으로 커져야 하며,
 // WebSocket과 HTTP 전체 조회가 같은 계산 함수를 사용해야 합니다.
 assert.equal(core.messageSubscriptionLimit(0), 250);
@@ -338,6 +389,96 @@ assert.match(
   /if\s*\(isLiveTranslationMode\(\)\)[\s\S]*setLiveDelayMs\([\s\S]*liveDelayMs[\s\S]*-\s*deltaMs/
 );
 assert.match(contentSource, /−는 더 늦게, \+는 더 빠르게/);
+
+// 라이브 리액션은 hover 메뉴가 아니라 채팅 하단에 항상 보이는 버튼이며,
+// 보관 번역·설정 화면에서는 숨습니다. 첫 구독 스냅숏은 과거 반응을
+// 재생하지 않고 ID만 기억해야 합니다.
+assert.equal(
+  (contentSource.match(/data-reaction-key=/g) || []).length,
+  6
+);
+assert.doesNotMatch(contentSource, /\.panel:hover\s+\.reaction-bar/);
+assert.match(
+  contentSource,
+  /\.panel\.video-click-priority \.reaction-bar,[\s\S]*pointer-events:\s*auto/
+);
+assert.match(contentSource, /\.panel\.settings-open \.reaction-bar/);
+const liveReactionsEnabled = namedFunctionSource(
+  contentSource,
+  "liveReactionsEnabled"
+);
+assert.match(liveReactionsEnabled, /state\.settings\.visible/);
+assert.match(liveReactionsEnabled, /!state\.settingsOpen/);
+assert.match(liveReactionsEnabled, /isLiveTranslationMode\(\)/);
+const renderReactionControls = namedFunctionSource(
+  contentSource,
+  "renderReactionControls"
+);
+assert.match(renderReactionControls, /reactionBar\.hidden\s*=\s*!enabled/);
+const syncReactionsSubscription = namedFunctionSource(
+  contentSource,
+  "syncReactionsSubscription"
+);
+assert.match(syncReactionsSubscription, /!isLiveTranslationMode\(\)/);
+assert.match(syncReactionsSubscription, /"reactions:recent"/);
+assert.match(syncReactionsSubscription, /\{\s*sessionId:\s*session\._id\s*\}/);
+const applyReactionSnapshot = namedFunctionSource(
+  contentSource,
+  "applyReactionSnapshot"
+);
+assert.ok(
+  applyReactionSnapshot.indexOf("rememberReactionId(reactionId(reaction))") <
+    applyReactionSnapshot.indexOf("showReaction(reaction.key)"),
+  "최초 반응 목록은 기억만 하고 과거 이모티콘을 다시 띄우지 않아야 합니다."
+);
+const reactionShows = [];
+const reactionContext = {
+  liveSync: {
+    reactionsReadyKey: null,
+    seenReactionIds: new Set()
+  },
+  REACTION_BY_KEY: new Map([
+    ["heart", {}],
+    ["wow", {}]
+  ]),
+  MAX_SEEN_REACTION_IDS: 500,
+  MAX_REACTION_SNAPSHOT: 100,
+  showReaction(key) {
+    reactionShows.push(key);
+  }
+};
+vm.runInNewContext(
+  `${namedFunctionSource(contentSource, "reactionId")}\n` +
+    `${namedFunctionSource(contentSource, "rememberReactionId")}\n` +
+    `${applyReactionSnapshot}\n` +
+    "this.applyReactionSnapshot = applyReactionSnapshot;",
+  reactionContext
+);
+reactionContext.applyReactionSnapshot(
+  [{ tapId: "reaction_old_1", key: "heart" }],
+  "route:session"
+);
+assert.deepEqual(reactionShows, [], "최초 과거 반응은 띄우면 안 됩니다.");
+reactionContext.applyReactionSnapshot(
+  [
+    { tapId: "reaction_new_1", key: "wow" },
+    { tapId: "reaction_old_1", key: "heart" }
+  ],
+  "route:session"
+);
+assert.deepEqual(reactionShows, ["wow"], "새 반응만 한 번 띄워야 합니다.");
+reactionContext.applyReactionSnapshot(
+  [{ tapId: "reaction_new_1", key: "wow" }],
+  "route:session"
+);
+assert.deepEqual(reactionShows, ["wow"], "같은 반응을 중복 재생하면 안 됩니다.");
+const sendReaction = namedFunctionSource(contentSource, "sendReaction");
+assert.match(sendReaction, /client\.mutation\("reactions:react"/);
+assert.match(
+  sendReaction,
+  /sessionId,[\s\S]*key:\s*reactionKey,[\s\S]*clientId,[\s\S]*tapId/
+);
+assert.match(sendReaction, /showReaction\(reactionKey,\s*button\)/);
 
 // 사용자에게 보이는 배경 슬라이더는 일반적인 투명도 의미를 사용하되
 // 기존 저장값(불투명도)은 변환해 화면 모양을 그대로 보존해야 합니다.

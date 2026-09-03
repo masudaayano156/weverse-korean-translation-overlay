@@ -62,6 +62,25 @@ assert.doesNotMatch(
   /createElement\s*\(\s*["']script["']|import\s*\(\s*["']https?:/
 );
 
+const mutationTargets = [...contentSource.matchAll(
+  /\.mutation\(\s*["']([^"']+)["']/g
+)].map((match) => match[1]);
+assert.deepEqual(mutationTargets, ["reactions:react"]);
+const sendReactionSource = contentSource.slice(
+  contentSource.indexOf("async function sendReaction"),
+  contentSource.indexOf("function bindUiEvents")
+);
+assert.match(sendReactionSource, /crypto\.randomUUID\(\)/);
+assert.match(sendReactionSource, /sessionId,[\s\S]*key:\s*reactionKey,[\s\S]*clientId,[\s\S]*tapId/);
+assert.doesNotMatch(
+  sendReactionSource,
+  /document\.cookie|localStorage|account|email|memberId|accessToken|authorization/i
+);
+assert.match(
+  contentSource,
+  /function ensureReactionClientId\(\)[\s\S]*crypto\.randomUUID\(\)[\s\S]*persistReactionClientId/
+);
+
 class FakeXMLHttpRequest {
   constructor() {
     this.responseType = "";
