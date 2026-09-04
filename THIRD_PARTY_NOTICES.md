@@ -14,7 +14,7 @@
 브라우저 번들을 확장프로그램 안에 고정해서 포함했습니다. 실행 중 외부에서
 JavaScript 파일을 내려받거나 교체하지 않습니다.
 
-## Google Noto Emoji — 🥹 벡터 그림
+## Google Noto Emoji — `귀여워` 리액션 벡터 그림
 
 - 포함 파일: `icons/reaction-cute-noto.svg`
 - 포함 파일 SHA-256: `3BDBB7E754ADCF3802BA30ABB20727ED2F0180888EB9043E2C666A1EA81A5C71`
