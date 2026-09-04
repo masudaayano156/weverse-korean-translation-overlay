@@ -266,8 +266,8 @@
         transition: opacity 140ms ease;
       }
 
-      .panel.minimal:hover .header,
-      .panel.minimal:focus-within .header {
+      .panel.minimal:hover:not(:has(.reaction-bar:hover)) .header,
+      .panel.minimal:not(:hover):focus-within:not(:has(.reaction-bar:focus-within)) .header {
         opacity: 1;
         pointer-events: auto;
       }
@@ -537,8 +537,8 @@
         display: none !important;
       }
 
-      .panel:hover .quick-sync-bar:not([hidden]),
-      .panel:focus-within .quick-sync-bar:not([hidden]) {
+      .panel:hover:not(:has(.reaction-bar:hover)) .quick-sync-bar:not([hidden]),
+      .panel:not(:hover):focus-within:not(:has(.reaction-bar:focus-within)) .quick-sync-bar:not([hidden]) {
         opacity: 1;
         pointer-events: auto;
         transform: translateY(0);
@@ -912,12 +912,12 @@
         align-self: center;
         width: min(100%, 320px);
         padding: 4px;
-        background: rgba(8, 10, 15, 0.76);
-        border: 1px solid rgba(255, 255, 255, 0.13);
+        background: transparent;
+        border: 1px solid transparent;
         border-radius: 10px;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
-        backdrop-filter: blur(7px);
-        -webkit-backdrop-filter: blur(7px);
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
       }
 
       .panel.minimal .reaction-button {

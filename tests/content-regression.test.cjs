@@ -522,6 +522,18 @@ assert.equal(
 assert.doesNotMatch(contentSource, /\.panel:hover\s+\.reaction-bar/);
 assert.match(
   contentSource,
+  /\.panel\.minimal:hover:not\(:has\(\.reaction-bar:hover\)\) \.header/
+);
+assert.match(
+  contentSource,
+  /\.panel:hover:not\(:has\(\.reaction-bar:hover\)\) \.quick-sync-bar/
+);
+assert.match(
+  contentSource,
+  /\.panel\.minimal \.reaction-bar\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/
+);
+assert.match(
+  contentSource,
   /\.panel\.video-click-priority \.reaction-bar,[\s\S]*pointer-events:\s*auto/
 );
 assert.match(contentSource, /\.panel\.settings-open \.reaction-bar/);
