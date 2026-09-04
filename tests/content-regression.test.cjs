@@ -160,12 +160,20 @@ const broadcastRouteMatch = namedFunctionSource(
   contentSource,
   "broadcastRouteMatch"
 );
+const isInstagramPage = namedFunctionSource(contentSource, "isInstagramPage");
+const instagramLiveRouteMatch = namedFunctionSource(
+  contentSource,
+  "instagramLiveRouteMatch"
+);
 assert.match(broadcastRouteMatch, /\(live\|media\)/);
+assert.match(instagramLiveRouteMatch, /\/live/);
 assert.match(
   namedFunctionSource(contentSource, "postIdFromRoute"),
   /broadcastRouteMatch\(route\)\?\.\[2\]/
 );
 const isLiveRoute = namedFunctionSource(contentSource, "isLiveRoute");
+assert.match(isLiveRoute, /isInstagramPage\(\)/);
+assert.match(isLiveRoute, /instagramLiveRouteMatch\(\)/);
 assert.match(isLiveRoute, /match\[1\]\s*===\s*"live"/);
 assert.match(isLiveRoute, /liveToVod\s*===\s*true/);
 assert.match(isLiveRoute, /live-chat-list/);
@@ -179,7 +187,21 @@ assert.match(
 );
 let hasLiveChatList = false;
 const routeContext = {
-  location: { pathname: "/kawaii_lab/media/3-240169475" },
+  INSTAGRAM_ORIGIN: "https://www.instagram.com",
+  INSTAGRAM_MEMBER_HANDLES: new Set([
+    "aika.sano_official",
+    "nagisa_manabe",
+    "fuuuuu_ri",
+    "m_ayano26",
+    "pa___.ru",
+    "kana.sii.i",
+    "miyu_.0913",
+    "_emiru._"
+  ]),
+  location: {
+    origin: "https://weverse.io",
+    pathname: "/kawaii_lab/media/3-240169475"
+  },
   hookedTimings: new Map(),
   state: { recognizedLiveReplayPostIds: new Set() },
   document: {
@@ -190,7 +212,7 @@ const routeContext = {
   }
 };
 vm.runInNewContext(
-  `${broadcastRouteMatch}\n${isLiveRoute}\nthis.isLiveRoute = isLiveRoute;`,
+  `${broadcastRouteMatch}\n${isInstagramPage}\n${instagramLiveRouteMatch}\n${isLiveRoute}\nthis.isLiveRoute = isLiveRoute;`,
   routeContext
 );
 assert.equal(routeContext.isLiveRoute(), false, "일반 /media/ 영상은 제외해야 합니다.");
@@ -204,6 +226,106 @@ assert.equal(
 );
 routeContext.location.pathname = "/kawaii_lab/live/1-179514847";
 assert.equal(routeContext.isLiveRoute(), true, "/live/ 방송은 계속 허용해야 합니다.");
+routeContext.location.origin = "https://www.instagram.com";
+for (const handle of [
+  "aika.sano_official",
+  "nagisa_manabe",
+  "m_ayano26",
+  "kana.sii.i",
+  "_emiru._",
+  "miyu_.0913",
+  "pa___.ru",
+  "fuuuuu_ri"
+]) {
+  routeContext.location.pathname = `/${handle}/live/`;
+  assert.equal(
+    routeContext.isLiveRoute(),
+    true,
+    `${handle} Instagram 라이브를 허용해야 합니다.`
+  );
+}
+routeContext.location.pathname = "/_emiru._/";
+assert.equal(routeContext.isLiveRoute(), false, "Instagram 일반 프로필은 제외해야 합니다.");
+routeContext.location.pathname = "/unrelated_account/live/";
+assert.equal(routeContext.isLiveRoute(), false, "지원 멤버가 아닌 라이브는 제외해야 합니다.");
+routeContext.location.origin = "https://untrusted.example";
+routeContext.location.pathname = "/_emiru._/live/";
+assert.equal(routeContext.isLiveRoute(), false, "허용되지 않은 출처는 제외해야 합니다.");
+
+const readBroadcastInfo = namedFunctionSource(contentSource, "readBroadcastInfo");
+const instagramBroadcastContext = {
+  INSTAGRAM_ORIGIN: "https://www.instagram.com",
+  INSTAGRAM_MEMBER_HANDLES: new Set(["_emiru._"]),
+  location: {
+    origin: "https://www.instagram.com",
+    pathname: "/_emiru._/live/"
+  },
+  document: { body: null }
+};
+vm.runInNewContext(
+  `${isInstagramPage}\n${instagramLiveRouteMatch}\n${readBroadcastInfo}\nthis.readBroadcastInfo = readBroadcastInfo;`,
+  instagramBroadcastContext
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(instagramBroadcastContext.readBroadcastInfo())),
+  {
+    startedAt: null,
+    publishedAt: null,
+    onAirStartAt: null,
+    exactOnAirStart: false,
+    liveToVod: false,
+    videoType: "LIVE",
+    title: "_emiru._ Instagram 라이브",
+    author: "_emiru._",
+    live: true,
+    route: "/_emiru._/live/",
+    platform: "instagram"
+  },
+  "Instagram 방송 정보는 댓글이나 본문을 읽지 않고 URL의 공개 ID로 만들어야 합니다."
+);
+
+const currentPlayerRect = namedFunctionSource(contentSource, "currentPlayerRect");
+const instagramVideoRect = {
+  left: 560,
+  top: 24,
+  right: 1122,
+  bottom: 1020,
+  width: 562,
+  height: 996
+};
+const instagramVideo = {
+  getBoundingClientRect() {
+    return instagramVideoRect;
+  }
+};
+const instagramPlayerContext = {
+  window: { innerWidth: 2048, innerHeight: 1040 },
+  findPlayerElement() {
+    return instagramVideo;
+  },
+  findVideoElement() {
+    return instagramVideo;
+  },
+  isInstagramPage() {
+    return true;
+  }
+};
+vm.runInNewContext(
+  `${currentPlayerRect}\nthis.currentPlayerRect = currentPlayerRect;`,
+  instagramPlayerContext
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(instagramPlayerContext.currentPlayerRect())),
+  { left: 0, top: 24, right: 552, bottom: 1020, width: 552, height: 996 },
+  "Instagram에서는 영상 왼쪽 빈 공간을 기본 배치 영역으로 써야 합니다."
+);
+instagramVideoRect.left = 120;
+instagramVideoRect.right = 682;
+assert.deepEqual(
+  JSON.parse(JSON.stringify(instagramPlayerContext.currentPlayerRect())),
+  instagramVideoRect,
+  "왼쪽 공간이 좁으면 영상 영역 안의 기존 배치로 안전하게 돌아가야 합니다."
+);
 
 // 구독 제한은 메시지 한 건마다 바뀌지 않고 단계적으로 커져야 하며,
 // WebSocket과 HTTP 전체 조회가 같은 계산 함수를 사용해야 합니다.
@@ -597,6 +719,11 @@ assert.match(
   namedFunctionSource(contentSource, "enforceHighestQuality"),
   /state\.routeGeneration.*state\.qualityEnableEpoch/
 );
+assert.match(
+  namedFunctionSource(contentSource, "enforceHighestQuality"),
+  /!isWeversePage\(\)/
+);
+assert.match(contentSource, /highestQualitySection\.hidden\s*=\s*!isWeversePage\(\)/);
 assert.match(
   namedFunctionSource(contentSource, "noteQualityUserActivity"),
   /event\.isTrusted[\s\S]*result:\s*"user-owned"/

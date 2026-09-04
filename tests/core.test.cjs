@@ -364,6 +364,43 @@ assert.equal(
   "furi-session"
 );
 
+const instagramMemberCases = [
+  ["aika.sano_official", "아이카"],
+  ["nagisa_manabe", "나기사"],
+  ["m_ayano26", "아야노"],
+  ["kana.sii.i", "카나"],
+  ["_emiru._", "에미루"],
+  ["miyu_.0913", "미유"],
+  ["pa___.ru", "파루땅"],
+  ["fuuuuu_ri", "후리"]
+];
+for (const [handle, memberName] of instagramMemberCases) {
+  const matchingId = `${memberName}-instagram-session`;
+  const candidates = [
+    {
+      _id: "other-live-session",
+      live: true,
+      title: "다른 멤버 라이브",
+      lastActivityAt: 200
+    },
+    {
+      _id: matchingId,
+      live: true,
+      title: `${memberName} 인스타 라이브`,
+      lastActivityAt: 100
+    }
+  ];
+  assert.equal(
+    core.chooseSessionForBroadcast(
+      candidates,
+      { startedAt: null, live: true, author: handle },
+      null
+    )._id,
+    matchingId,
+    `${handle} 계정은 ${memberName} 번역 세션을 선택해야 합니다.`
+  );
+}
+
 const messages = Array.from({ length: 12 }, (_value, index) => ({
   _id: String(index),
   _creationTime: index,

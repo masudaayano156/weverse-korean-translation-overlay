@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Weverse 한국어 라이브 번역 오버레이",
-  "version": "1.14.2",
-  "description": "큐티스트리트 인간 번역기의 공개 실시간·보관 번역을 위버스 생방송과 다시보기 영상 위에 표시합니다.",
+  "name": "Weverse·Instagram 한국어 라이브 번역 오버레이",
+  "version": "1.15.0",
+  "description": "큐티스트리트 인간 번역기의 공개 번역을 Weverse와 Instagram 라이브 화면에 표시합니다.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
     "https://weverse.io/*",
+    "https://www.instagram.com/*",
     "https://api.cutiestreet.kro.kr/*"
   ],
   "background": {
@@ -20,7 +21,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "한국어 번역 오버레이 켜기/끄기",
+    "default_title": "한국어 라이브 번역 오버레이 켜기/끄기",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -33,7 +34,7 @@
       "suggested_key": {
         "default": "Alt+Shift+K"
       },
-      "description": "한국어 번역 오버레이 켜기/끄기"
+      "description": "한국어 라이브 번역 오버레이 켜기/끄기"
     }
   },
   "content_scripts": [
@@ -49,7 +50,8 @@
     },
     {
       "matches": [
-        "https://weverse.io/*"
+        "https://weverse.io/*",
+        "https://www.instagram.com/*"
       ],
       "js": [
         "vendor/convex.js",

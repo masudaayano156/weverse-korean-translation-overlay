@@ -29,14 +29,22 @@ const vendorSource = fs.readFileSync(
 assert.deepEqual(manifest.permissions, ["storage"]);
 assert.deepEqual(manifest.host_permissions, [
   "https://weverse.io/*",
+  "https://www.instagram.com/*",
   "https://api.cutiestreet.kro.kr/*"
 ]);
 assert.equal(manifest.content_scripts[0].world, "MAIN");
 assert.deepEqual(manifest.content_scripts[0].js, ["page-hook.js"]);
+assert.deepEqual(manifest.content_scripts[0].matches, [
+  "https://weverse.io/*"
+]);
 assert.deepEqual(manifest.content_scripts[1].js, [
   "vendor/convex.js",
   "core.js",
   "content.js"
+]);
+assert.deepEqual(manifest.content_scripts[1].matches, [
+  "https://weverse.io/*",
+  "https://www.instagram.com/*"
 ]);
 
 const forbiddenPrivateRequestMarkers = [
@@ -50,8 +58,10 @@ for (const marker of forbiddenPrivateRequestMarkers) {
 }
 assert.match(
   backgroundSource,
-  /new URL\(senderUrl\)\.origin\s*===\s*["']https:\/\/weverse\.io["']/
+  /ALLOWED_CONTENT_ORIGINS\.has\(new URL\(senderUrl\)\.origin\)/
 );
+assert.match(backgroundSource, /["']https:\/\/weverse\.io["']/);
+assert.match(backgroundSource, /["']https:\/\/www\.instagram\.com["']/);
 assert.match(
   backgroundSource,
   /if\s*\(!isAllowedContentSender\(sender\)\)\s*\{\s*return false;/

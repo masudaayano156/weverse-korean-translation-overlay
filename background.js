@@ -2,6 +2,10 @@
 
 const QUERY_URL = "https://api.cutiestreet.kro.kr/api/query";
 const QUERY_TIMEOUT_MS = 10000;
+const ALLOWED_CONTENT_ORIGINS = new Set([
+  "https://weverse.io",
+  "https://www.instagram.com"
+]);
 const ALLOWED_QUERY_PATHS = new Set([
   "sessions:live",
   "sessions:list",
@@ -75,7 +79,7 @@ async function queryTranslator(path, rawArgs) {
 function isAllowedContentSender(sender) {
   const senderUrl = String(sender?.tab?.url || sender?.url || "");
   try {
-    return new URL(senderUrl).origin === "https://weverse.io";
+    return ALLOWED_CONTENT_ORIGINS.has(new URL(senderUrl).origin);
   } catch (_error) {
     return false;
   }
@@ -107,7 +111,7 @@ async function toggleOverlayInTab(tab) {
   try {
     await chrome.tabs.sendMessage(tab.id, { type: "toggle-cutiestreet-overlay" });
   } catch (_error) {
-    // 위버스 이외의 탭이거나 아직 콘텐츠 스크립트가 준비되지 않은 경우입니다.
+    // 지원 사이트가 아니거나 아직 콘텐츠 스크립트가 준비되지 않은 경우입니다.
   }
 }
 

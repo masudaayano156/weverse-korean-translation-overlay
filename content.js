@@ -11,6 +11,18 @@
     return;
   }
 
+  const WEVERSE_ORIGIN = "https://weverse.io";
+  const INSTAGRAM_ORIGIN = "https://www.instagram.com";
+  const INSTAGRAM_MEMBER_HANDLES = new Set([
+    "aika.sano_official",
+    "nagisa_manabe",
+    "fuuuuu_ri",
+    "m_ayano26",
+    "pa___.ru",
+    "kana.sii.i",
+    "miyu_.0913",
+    "_emiru._"
+  ]);
   const STORAGE_KEY = "weverseKoreanOverlaySettingsV1";
   // V2 저장소는 이전 영상별 수동 조정과 기준점을 적용하지 않아 새 영점에서
   // 모든 다시보기가 0.0초로 시작하게 합니다. V1 데이터는 삭제하지 않습니다.
@@ -1305,7 +1317,7 @@
 
             <div class="setting-section">
               <div class="setting-label">
-                <span>영상 안 위치</span>
+                <span>자막창 위치</span>
                 <span id="position-value" class="setting-value">오른쪽 아래</span>
               </div>
               <div class="position-grid">
@@ -1358,7 +1370,7 @@
               <input id="text-outline-width" class="range-input" type="range" min="1" max="4" step="1" value="2">
             </div>
 
-            <div class="setting-section">
+            <div id="highest-quality-section" class="setting-section">
               <label class="check-label">
                 <input id="prefer-highest-quality" type="checkbox">
                 <span>항상 가능한 최고 화질</span>
@@ -1492,6 +1504,7 @@
     showTranslator: shadow.getElementById("show-translator"),
     showBorder: shadow.getElementById("show-border"),
     showTextOutline: shadow.getElementById("show-text-outline"),
+    highestQualitySection: shadow.getElementById("highest-quality-section"),
     preferHighestQuality: shadow.getElementById("prefer-highest-quality"),
     layoutLocked: shadow.getElementById("layout-locked"),
     videoClickPriority: shadow.getElementById("video-click-priority"),
@@ -1515,7 +1528,27 @@
     );
   }
 
+  function isWeversePage() {
+    return location.origin === WEVERSE_ORIGIN;
+  }
+
+  function isInstagramPage() {
+    return location.origin === INSTAGRAM_ORIGIN;
+  }
+
+  function instagramLiveRouteMatch(route = location.pathname) {
+    const match = /^\/([a-z0-9._]{1,30})\/live\/?$/i.exec(
+      String(route || "")
+    );
+    return match && INSTAGRAM_MEMBER_HANDLES.has(match[1].toLocaleLowerCase())
+      ? match
+      : null;
+  }
+
   function isLiveRoute() {
+    if (isInstagramPage()) {
+      return Boolean(instagramLiveRouteMatch());
+    }
     const match = broadcastRouteMatch();
     if (!match) {
       return false;
@@ -1549,6 +1582,22 @@
   }
 
   function readBroadcastInfo() {
+    if (isInstagramPage()) {
+      const username = instagramLiveRouteMatch()?.[1] || "Instagram";
+      return {
+        startedAt: null,
+        publishedAt: null,
+        onAirStartAt: null,
+        exactOnAirStart: false,
+        liveToVod: false,
+        videoType: "LIVE",
+        title: `${username} Instagram 라이브`,
+        author: username,
+        live: true,
+        route: location.pathname,
+        platform: "instagram"
+      };
+    }
     const rawLines = String(document.body?.innerText || "")
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -1621,7 +1670,8 @@
       title,
       author,
       live,
-      route: location.pathname
+      route: location.pathname,
+      platform: "weverse"
     };
   }
 
@@ -2343,6 +2393,7 @@
     dom.showBorder.checked = settings.showBorder;
     dom.showTextOutline.checked = settings.showTextOutline;
     dom.preferHighestQuality.checked = settings.preferHighestQuality;
+    dom.highestQualitySection.hidden = !isWeversePage();
     dom.layoutLocked.checked = settings.layoutLocked;
     dom.videoClickPriority.checked = settings.videoClickPriority;
     dom.positionValue.textContent = positionLabel(settings.position);
@@ -4448,7 +4499,11 @@
   }
 
   function enforceHighestQuality({ restart = false } = {}) {
-    if (!state.settings.preferHighestQuality || !isLiveRoute()) {
+    if (
+      !isWeversePage() ||
+      !state.settings.preferHighestQuality ||
+      !isLiveRoute()
+    ) {
       return false;
     }
     const runKey = `${state.routeGeneration}:${state.qualityEnableEpoch}`;
@@ -4733,7 +4788,7 @@
     const player = findPlayerElement();
     if (player) {
       const rect = player.getBoundingClientRect();
-      return {
+      const playerRect = {
         left: rect.left,
         top: rect.top,
         right: rect.right,
@@ -4741,6 +4796,29 @@
         width: rect.width,
         height: rect.height
       };
+      if (isInstagramPage()) {
+        const videoRect = findVideoElement()?.getBoundingClientRect?.() || rect;
+        const blankRight = Math.min(
+          window.innerWidth,
+          Math.floor(videoRect.left) - 8
+        );
+        const blankTop = Math.max(0, Math.floor(videoRect.top));
+        const blankBottom = Math.min(
+          window.innerHeight,
+          Math.ceil(videoRect.bottom)
+        );
+        if (blankRight >= 260 && blankBottom - blankTop >= 150) {
+          return {
+            left: 0,
+            top: blankTop,
+            right: blankRight,
+            bottom: blankBottom,
+            width: blankRight,
+            height: blankBottom - blankTop
+          };
+        }
+      }
+      return playerRect;
     }
     return {
       left: 0,
