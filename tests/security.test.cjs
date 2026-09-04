@@ -55,10 +55,7 @@ assert.deepEqual(manifest.content_scripts[1].matches, [
   "https://www.instagram.com/*"
 ]);
 assert.deepEqual(manifest.content_scripts[2], {
-  matches: [
-    "https://cutiestreet-live-translator.vercel.app/*",
-    "https://cutiestreet.kro.kr/*"
-  ],
+  matches: ["https://cutiestreet-live-translator.vercel.app/*"],
   js: ["identity-bridge.js"],
   run_at: "document_start"
 });
@@ -95,6 +92,8 @@ assert.doesNotMatch(
   `${contentSource}\n${hookSource}`,
   /createElement\s*\(\s*["']script["']|import\s*\(\s*["']https?:/
 );
+assert.match(contentSource, /attachShadow\(\{\s*mode:\s*["']closed["']\s*\}\)/);
+assert.doesNotMatch(contentSource, /attachShadow\(\{\s*mode:\s*["']open["']\s*\}\)/);
 assert.doesNotMatch(cuteReactionSvg, /<script\b|\bon\w+\s*=|javascript:/i);
 
 const contentMutationTargets = [...contentSource.matchAll(
@@ -115,7 +114,7 @@ const backgroundPresenceSource = backgroundSource.slice(
 assert.match(backgroundPresenceSource, /client\.mutation\("presence:heartbeat"/);
 assert.match(
   backgroundPresenceSource,
-  /roomId:\s*room\.roomId,[\s\S]*userId:\s*room\.userId,[\s\S]*sessionId:\s*room\.sessionId,[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
+  /roomId:\s*room\.roomId,[\s\S]*userId:\s*room\.userId,[\s\S]*sessionId:\s*room\.connectionId,[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
 );
 assert.match(backgroundPresenceSource, /client\.mutation\("presence:disconnect"/);
 assert.doesNotMatch(
@@ -143,8 +142,12 @@ const sendReactionSource = contentSource.slice(
   contentSource.indexOf("async function sendReaction"),
   contentSource.indexOf("function bindUiEvents")
 );
+assert.match(sendReactionSource, /if\s*\(!isTrustedUiEvent\(event\)\)\s*\{\s*return;/);
 assert.match(sendReactionSource, /crypto\.randomUUID\(\)/);
-assert.match(sendReactionSource, /sessionId,[\s\S]*key:\s*reactionKey,[\s\S]*clientId,[\s\S]*tapId/);
+assert.match(
+  sendReactionSource,
+  /sessionId:\s*broadcastId,[\s\S]*key:\s*reactionKey,[\s\S]*clientId,[\s\S]*tapId/
+);
 assert.doesNotMatch(
   sendReactionSource,
   /document\.cookie|localStorage|account|email|memberId|accessToken|authorization/i

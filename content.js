@@ -132,7 +132,9 @@
 
   const host = document.createElement("div");
   host.id = "weverse-korean-translation-overlay-host";
-  const shadow = host.attachShadow({ mode: "open" });
+  // 페이지 스크립트가 오버레이 내부 컨트롤을 찾아 합성 이벤트를
+  // 발생시키지 못하도록 확장프로그램 내부 DOM은 외부에 노출하지 않습니다.
+  const shadow = host.attachShadow({ mode: "closed" });
 
   shadow.innerHTML = `
     <style>
@@ -2948,10 +2950,11 @@
   function syncReactionsSubscription() {
     const client = liveSync.client;
     const session = state.selectedSession;
+    const broadcastId = session?._id || "";
     if (
       !client ||
       !session ||
-      !core.isValidSessionId(session._id) ||
+      !core.isValidSessionId(broadcastId) ||
       !state.settings.visible ||
       !isLiveRoute() ||
       !isLiveTranslationMode()
@@ -2959,7 +2962,7 @@
       stopReactionsSubscription();
       return;
     }
-    const key = `${state.routeGeneration}:${session._id}`;
+    const key = `${state.routeGeneration}:${broadcastId}`;
     if (key === liveSync.reactionsKey) {
       return;
     }
@@ -2968,12 +2971,12 @@
     const requestGeneration = state.routeGeneration;
     liveSync.reactionsUnsubscribe = client.onUpdate(
       "reactions:recent",
-      { sessionId: session._id },
+      { sessionId: broadcastId },
       (value) => {
         if (
           liveSync.client !== client ||
           requestGeneration !== state.routeGeneration ||
-          state.selectedSession?._id !== session._id ||
+          state.selectedSession?._id !== broadcastId ||
           liveSync.reactionsKey !== key
         ) {
           return;
@@ -2985,7 +2988,7 @@
         if (
           liveSync.client === client &&
           requestGeneration === state.routeGeneration &&
-          state.selectedSession?._id === session._id
+          state.selectedSession?._id === broadcastId
         ) {
           stopReactionsSubscription();
         }
@@ -5328,13 +5331,20 @@
     );
   }
 
-  async function sendReaction(reactionKey, button) {
+  function isTrustedUiEvent(event) {
+    return event?.isTrusted === true;
+  }
+
+  async function sendReaction(reactionKey, button, event) {
+    if (!isTrustedUiEvent(event)) {
+      return;
+    }
     const reaction = REACTION_BY_KEY.get(reactionKey);
-    const sessionId = state.selectedSession?._id || "";
+    const broadcastId = state.selectedSession?._id || "";
     if (
       !reaction ||
       !liveReactionsEnabled() ||
-      !core.isValidSessionId(sessionId)
+      !core.isValidSessionId(broadcastId)
     ) {
       return;
     }
@@ -5352,7 +5362,8 @@
       }
       const clientId = await ensureReactionClientId();
       await client.mutation("reactions:react", {
-        sessionId,
+        // reactions API의 sessionId는 연결 ID가 아니라 공개 방송 ID입니다.
+        sessionId: broadcastId,
         key: reactionKey,
         clientId,
         tapId
@@ -5409,18 +5420,27 @@
       dom.restoreButton.focus({ preventScroll: true });
     });
 
-    dom.restoreButton.addEventListener("click", () => {
+    dom.restoreButton.addEventListener("click", (event) => {
+      if (!isTrustedUiEvent(event)) {
+        return;
+      }
       updateSettings({ visible: true });
       resumeHighestQualityAutomation();
       dom.settingsButton.focus({ preventScroll: true });
       void refreshSessions({ forceMessages: true });
     });
 
-    dom.refreshButton.addEventListener("click", () => {
+    dom.refreshButton.addEventListener("click", (event) => {
+      if (!isTrustedUiEvent(event)) {
+        return;
+      }
       void refreshSessions({ forceMessages: true, forceHttp: true });
     });
 
-    dom.sessionSelect.addEventListener("change", () => {
+    dom.sessionSelect.addEventListener("change", (event) => {
+      if (!isTrustedUiEvent(event)) {
+        return;
+      }
       const selected = state.sessions.find(
         (session) => session._id === dom.sessionSelect.value
       );
@@ -5538,8 +5558,8 @@
       });
     }
     for (const button of dom.reactionButtons) {
-      button.addEventListener("click", () => {
-        void sendReaction(button.dataset.reactionKey, button);
+      button.addEventListener("click", (event) => {
+        void sendReaction(button.dataset.reactionKey, button, event);
       });
     }
     dom.saveReplayAnchorButton.addEventListener(

@@ -143,7 +143,8 @@ async function beatPresenceRoom(room) {
     const result = await client.mutation("presence:heartbeat", {
       roomId: room.roomId,
       userId: room.userId,
-      sessionId: room.sessionId,
+      // heartbeat의 sessionId는 공개 방송 ID가 아니라 연결별 ID입니다.
+      sessionId: room.connectionId,
       interval: PRESENCE_HEARTBEAT_MS
     });
     const roomToken = validPresenceToken(result?.roomToken);
@@ -235,7 +236,7 @@ async function reconcilePresenceRooms() {
       const room = {
         roomId,
         userId,
-        sessionId: JSON.stringify([crypto.randomUUID(), roomId, userId]),
+        connectionId: JSON.stringify([crypto.randomUUID(), roomId, userId]),
         roomToken: null,
         sessionToken: null,
         beating: false

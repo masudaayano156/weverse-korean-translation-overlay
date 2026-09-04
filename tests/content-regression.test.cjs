@@ -487,6 +487,38 @@ assert.match(
   /if\s*\(renderContent\s*\|\|\s*state\.messageRenderPending\)[\s\S]*renderMessages\(\)/
 );
 const bindUiEvents = namedFunctionSource(contentSource, "bindUiEvents");
+const isTrustedUiEvent = namedFunctionSource(contentSource, "isTrustedUiEvent");
+const trustedSendReaction = namedFunctionSource(contentSource, "sendReaction");
+assert.match(contentSource, /attachShadow\(\{\s*mode:\s*"closed"\s*\}\)/);
+assert.match(isTrustedUiEvent, /event\?\.isTrusted\s*===\s*true/);
+assert.match(
+  trustedSendReaction,
+  /if\s*\(!isTrustedUiEvent\(event\)\)\s*\{\s*return;/
+);
+assert.match(
+  bindUiEvents,
+  /restoreButton\.addEventListener\("click",\s*\(event\)\s*=>\s*\{\s*if\s*\(!isTrustedUiEvent\(event\)\)/
+);
+assert.match(
+  bindUiEvents,
+  /refreshButton\.addEventListener\("click",\s*\(event\)\s*=>\s*\{\s*if\s*\(!isTrustedUiEvent\(event\)\)/
+);
+assert.match(
+  bindUiEvents,
+  /sessionSelect\.addEventListener\("change",\s*\(event\)\s*=>\s*\{\s*if\s*\(!isTrustedUiEvent\(event\)\)/
+);
+assert.match(
+  bindUiEvents,
+  /reactionButtons[\s\S]*addEventListener\("click",\s*\(event\)\s*=>[\s\S]*sendReaction\(button\.dataset\.reactionKey,\s*button,\s*event\)/
+);
+const trustedEventContext = {};
+vm.runInNewContext(
+  `${isTrustedUiEvent}\nthis.isTrustedUiEvent = isTrustedUiEvent;`,
+  trustedEventContext
+);
+assert.equal(trustedEventContext.isTrustedUiEvent({ isTrusted: true }), true);
+assert.equal(trustedEventContext.isTrustedUiEvent({ isTrusted: false }), false);
+assert.equal(trustedEventContext.isTrustedUiEvent(null), false);
 assert.match(
   bindUiEvents,
   /settingsButton\.addEventListener\("click"[\s\S]*state\.settingsOpen\s*=\s*!state\.settingsOpen[\s\S]*applySettingsToUi\(\)/
@@ -558,7 +590,10 @@ const syncReactionsSubscription = namedFunctionSource(
 );
 assert.match(syncReactionsSubscription, /!isLiveTranslationMode\(\)/);
 assert.match(syncReactionsSubscription, /"reactions:recent"/);
-assert.match(syncReactionsSubscription, /\{\s*sessionId:\s*session\._id\s*\}/);
+assert.match(
+  syncReactionsSubscription,
+  /\{\s*sessionId:\s*broadcastId\s*\}/
+);
 const applyReactionSnapshot = namedFunctionSource(
   contentSource,
   "applyReactionSnapshot"
@@ -623,7 +658,7 @@ const sendReaction = namedFunctionSource(contentSource, "sendReaction");
 assert.match(sendReaction, /client\.mutation\("reactions:react"/);
 assert.match(
   sendReaction,
-  /sessionId,[\s\S]*key:\s*reactionKey,[\s\S]*clientId,[\s\S]*tapId/
+  /sessionId:\s*broadcastId,[\s\S]*key:\s*reactionKey,[\s\S]*clientId,[\s\S]*tapId/
 );
 assert.match(sendReaction, /showReaction\(reactionKey,\s*button\)/);
 assert.match(
@@ -683,7 +718,7 @@ const beatPresenceRoom = namedFunctionSource(backgroundSource, "beatPresenceRoom
 assert.match(beatPresenceRoom, /room\.beating/);
 assert.match(
   beatPresenceRoom,
-  /client\.mutation\("presence:heartbeat"[\s\S]*roomId:\s*room\.roomId[\s\S]*userId:\s*room\.userId[\s\S]*sessionId:\s*room\.sessionId[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
+  /client\.mutation\("presence:heartbeat"[\s\S]*roomId:\s*room\.roomId[\s\S]*userId:\s*room\.userId[\s\S]*sessionId:\s*room\.connectionId[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
 );
 assert.match(beatPresenceRoom, /room\.roomToken\s*=\s*roomToken/);
 assert.match(beatPresenceRoom, /room\.sessionToken\s*=\s*sessionToken/);

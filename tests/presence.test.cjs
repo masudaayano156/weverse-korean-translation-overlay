@@ -19,6 +19,7 @@ const intervalCallbacks = new Map();
 const timeoutCallbacks = new Map();
 let nextTimerId = 1;
 let pendingHeartbeat = null;
+let failNextHeartbeat = false;
 
 class FakeConvexClient {
   constructor(url) {
@@ -33,6 +34,10 @@ class FakeConvexClient {
     if (name === "presence:heartbeat") {
       if (pendingHeartbeat) {
         return pendingHeartbeat.promise;
+      }
+      if (failNextHeartbeat) {
+        failNextHeartbeat = false;
+        return Promise.reject(new Error("temporary heartbeat failure"));
       }
       if (!this.tokens.has(args.sessionId)) {
         this.tokens.set(args.sessionId, `token-${this.tokens.size + 1}`);
@@ -177,8 +182,17 @@ async function main() {
   assert.equal(mutationCalls[0].args.userId, storedValues.weverseOverlayReactionClientIdV1);
   assert.equal(mutationCalls[0].args.interval, 60_000);
   const connectionId = JSON.parse(mutationCalls[0].args.sessionId);
+  assert.match(
+    connectionId[0],
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  );
   assert.equal(connectionId[1], roomId);
   assert.equal(connectionId[2], storedValues.weverseOverlayReactionClientIdV1);
+  assert.notEqual(
+    mutationCalls[0].args.sessionId,
+    roomId,
+    "heartbeat sessionId는 방송 ID가 아니라 연결별 ID여야 합니다."
+  );
 
   await sendPresence("cutiestreet-presence-start", roomId, secondSurface, 2);
   await settle();
@@ -209,6 +223,19 @@ async function main() {
   pendingHeartbeat = null;
   resolveHeartbeat({ roomToken: `room-${roomId}`, sessionToken: "token-1" });
   await settle();
+
+  const beatsBeforeFailure = mutationCalls.filter(
+    (call) => call.name === "presence:heartbeat"
+  ).length;
+  failNextHeartbeat = true;
+  intervalCallback();
+  await settle();
+  await settle();
+  assert.equal(
+    mutationCalls.filter((call) => call.name === "presence:heartbeat").length,
+    beatsBeforeFailure + 1,
+    "실패한 하트비트를 즉시 재전송하면 안 됩니다."
+  );
 
   await sendPresence("cutiestreet-presence-stop", roomId, firstSurface, 1);
   await settle();
