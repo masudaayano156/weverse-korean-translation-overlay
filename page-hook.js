@@ -17,6 +17,7 @@
   const MESSAGE_SOURCE = "weverse-korean-overlay-page-hook";
   const REQUEST_SOURCE = "weverse-korean-overlay-content";
   const REQUEST_TYPE = "request-timing";
+  const PRIVACY_TYPE = "privacy-consent";
   const POST_PATH_PATTERN = /\/post\/v1\.0\/post-([0-9]+-[0-9]+)(?:[/?#]|$)/;
   const MAX_RECENT_TIMINGS = 20;
   const ALLOWED_RESPONSE_ORIGINS = new Set([
@@ -26,6 +27,7 @@
   const xhrPostId = Symbol("weverseKoreanOverlayPostId");
   const xhrObservation = Symbol("weverseKoreanOverlayObservation");
   const recentTimings = new Map();
+  let privacyConsent = false;
 
   function postIdFromUrl(url) {
     let parsedUrl;
@@ -123,6 +125,18 @@
     }
     const data = event.data;
     if (
+      data?.source === REQUEST_SOURCE &&
+      data?.type === PRIVACY_TYPE &&
+      typeof data.granted === "boolean"
+    ) {
+      privacyConsent = data.granted;
+      if (!privacyConsent) {
+        recentTimings.clear();
+      }
+      return;
+    }
+    if (
+      !privacyConsent ||
       !data ||
       data.source !== REQUEST_SOURCE ||
       data.type !== REQUEST_TYPE ||
@@ -140,6 +154,9 @@
   if (typeof originalFetch === "function") {
     window.fetch = function patchedFetch(input) {
       const result = Reflect.apply(originalFetch, this, arguments);
+      if (!privacyConsent) {
+        return result;
+      }
       try {
         const requestUrl = typeof input === "string" || input instanceof URL
           ? String(input)
@@ -148,9 +165,16 @@
         if (postId) {
           result.then(
             (response) => {
+              if (!privacyConsent) {
+                return;
+              }
               try {
                 response.clone().text().then(
-                  (text) => inspectText(postId, text),
+                  (text) => {
+                    if (privacyConsent) {
+                      inspectText(postId, text);
+                    }
+                  },
                   () => {}
                 );
               } catch (_error) {
@@ -192,6 +216,10 @@
 
   XMLHttpRequest.prototype.open = function patchedOpen(method, url) {
     clearXhrObservation(this);
+    if (!privacyConsent) {
+      this[xhrPostId] = null;
+      return Reflect.apply(originalOpen, this, arguments);
+    }
     try {
       this[xhrPostId] = postIdFromUrl(url);
     } catch (_error) {
@@ -203,12 +231,16 @@
   XMLHttpRequest.prototype.send = function patchedSend() {
     clearXhrObservation(this);
     try {
+      if (!privacyConsent) {
+        return Reflect.apply(originalSend, this, arguments);
+      }
       const postId = this[xhrPostId];
       if (postId) {
         const observation = {};
         const onDone = () => clearXhrObservation(this, observation);
         const onLoad = () => {
           if (
+            !privacyConsent ||
             this[xhrObservation] !== observation ||
             this[xhrPostId] !== postId
           ) {

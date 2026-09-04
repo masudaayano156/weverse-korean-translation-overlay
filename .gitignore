@@ -1,3 +1,6 @@
+/dist/
+/store/node_modules/
+
 # 제3자 비교용으로 임시 보관한 파일은 저장소에 올리지 않습니다.
 /weverse-korean-translation-overlay.zip
 /weverse-korean-translation-overlay-*.zip

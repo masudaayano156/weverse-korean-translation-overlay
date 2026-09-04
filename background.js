@@ -10,6 +10,8 @@ const PRESENCE_SURFACE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SESSION_ID_PATTERN = /^[a-z0-9]{16,64}$/i;
 const ANONYMOUS_CLIENT_ID_KEY = "weverseOverlayReactionClientIdV1";
+const PRIVACY_CONSENT_KEY = "weverseOverlayPrivacyConsentV1";
+const PRIVACY_CONSENT_VERSION = 1;
 const ALLOWED_CONTENT_ORIGINS = new Set([
   "https://weverse.io",
   "https://www.instagram.com"
@@ -31,6 +33,10 @@ const presenceState = {
   heartbeatTimer: null,
   reconcilePromise: Promise.resolve()
 };
+
+let privacyConsentGranted = null;
+let privacyConsentRevision = 0;
+const activeQueryControllers = new Set();
 
 function isValidUuid(value) {
   return PRESENCE_SURFACE_ID_PATTERN.test(String(value || ""));
@@ -66,29 +72,71 @@ function writeLocalValue(key, value) {
   });
 }
 
+async function hasPrivacyConsent() {
+  if (typeof privacyConsentGranted === "boolean") {
+    return privacyConsentGranted;
+  }
+  const revision = privacyConsentRevision;
+  const storedConsent = await readLocalValue(PRIVACY_CONSENT_KEY);
+  if (revision !== privacyConsentRevision) {
+    return privacyConsentGranted === true;
+  }
+  privacyConsentGranted = Number(storedConsent) === PRIVACY_CONSENT_VERSION;
+  return privacyConsentGranted;
+}
+
 async function ensureAnonymousClientId() {
+  const consentRevision = privacyConsentRevision;
+  if (
+    !(await hasPrivacyConsent()) ||
+    consentRevision !== privacyConsentRevision
+  ) {
+    throw new Error("개인정보 안내 동의가 필요합니다.");
+  }
   if (isValidUuid(presenceState.userId)) {
     return presenceState.userId;
   }
   if (presenceState.userIdPromise) {
     return presenceState.userIdPromise;
   }
-  presenceState.userIdPromise = (async () => {
+  const userIdPromise = (async () => {
+    const requestRevision = privacyConsentRevision;
     const storedId = await readLocalValue(ANONYMOUS_CLIENT_ID_KEY);
+    if (
+      requestRevision !== privacyConsentRevision ||
+      privacyConsentGranted !== true
+    ) {
+      throw new Error("개인정보 안내 동의가 필요합니다.");
+    }
     if (isValidUuid(presenceState.userId)) {
       return presenceState.userId;
     }
     const userId = isValidUuid(storedId) ? storedId : crypto.randomUUID();
-    presenceState.userId = userId;
     if (userId !== storedId) {
-      await writeLocalValue(ANONYMOUS_CLIENT_ID_KEY, userId);
+      const stored = await writeLocalValue(ANONYMOUS_CLIENT_ID_KEY, userId);
+      if (!stored) {
+        throw new Error("익명 접속 번호를 저장하지 못했습니다.");
+      }
     }
+    if (
+      requestRevision !== privacyConsentRevision ||
+      privacyConsentGranted !== true
+    ) {
+      if (privacyConsentGranted !== true && userId !== storedId) {
+        chrome.storage.local.remove([ANONYMOUS_CLIENT_ID_KEY]);
+      }
+      throw new Error("개인정보 안내 동의가 필요합니다.");
+    }
+    presenceState.userId = userId;
     return userId;
   })();
+  presenceState.userIdPromise = userIdPromise;
   try {
-    return await presenceState.userIdPromise;
+    return await userIdPromise;
   } finally {
-    presenceState.userIdPromise = null;
+    if (presenceState.userIdPromise === userIdPromise) {
+      presenceState.userIdPromise = null;
+    }
   }
 }
 
@@ -137,8 +185,15 @@ async function beatPresenceRoom(room) {
   if (room.beating || presenceState.rooms.get(room.roomId) !== room) {
     return;
   }
+  const consentRevision = privacyConsentRevision;
   room.beating = true;
   try {
+    if (
+      !(await hasPrivacyConsent()) ||
+      consentRevision !== privacyConsentRevision
+    ) {
+      return;
+    }
     const client = presenceClient();
     const result = await client.mutation("presence:heartbeat", {
       roomId: room.roomId,
@@ -149,7 +204,11 @@ async function beatPresenceRoom(room) {
     });
     const roomToken = validPresenceToken(result?.roomToken);
     const sessionToken = validPresenceToken(result?.sessionToken);
-    if (presenceState.rooms.get(room.roomId) !== room) {
+    if (
+      consentRevision !== privacyConsentRevision ||
+      privacyConsentGranted !== true ||
+      presenceState.rooms.get(room.roomId) !== room
+    ) {
       await disconnectPresenceToken(sessionToken, client);
       return;
     }
@@ -217,6 +276,15 @@ function activePresenceRoomIds() {
 }
 
 async function reconcilePresenceRooms() {
+  const consentRevision = privacyConsentRevision;
+  if (
+    !(await hasPrivacyConsent()) ||
+    consentRevision !== privacyConsentRevision
+  ) {
+    presenceState.surfaces.clear();
+    updatePresenceHeartbeatTimer();
+    return;
+  }
   let activeRoomIds = activePresenceRoomIds();
   for (const [roomId, room] of [...presenceState.rooms]) {
     if (activeRoomIds.has(roomId)) {
@@ -228,6 +296,12 @@ async function reconcilePresenceRooms() {
 
   if (activeRoomIds.size > 0) {
     const userId = await ensureAnonymousClientId();
+    if (
+      consentRevision !== privacyConsentRevision ||
+      privacyConsentGranted !== true
+    ) {
+      return;
+    }
     activeRoomIds = activePresenceRoomIds();
     for (const roomId of activeRoomIds) {
       if (presenceState.rooms.has(roomId)) {
@@ -246,6 +320,31 @@ async function reconcilePresenceRooms() {
     }
   }
   updatePresenceHeartbeatTimer();
+}
+
+async function stopAllPresence() {
+  presenceState.surfaces.clear();
+  const staleRooms = [...presenceState.rooms.values()];
+  presenceState.rooms.clear();
+  updatePresenceHeartbeatTimer();
+  const client = presenceState.client;
+  if (presenceState.clientCloseTimer !== null) {
+    clearTimeout(presenceState.clientCloseTimer);
+    presenceState.clientCloseTimer = null;
+  }
+  presenceState.client = null;
+  presenceState.userId = "";
+  presenceState.userIdPromise = null;
+  await Promise.allSettled(
+    staleRooms.map((room) => disconnectPresenceToken(room.sessionToken, client))
+  );
+  if (client && typeof client.close === "function") {
+    try {
+      await Promise.resolve(client.close());
+    } catch (_error) {
+      // 연결 해제 요청이 실패해도 서버 만료 정책이 남은 접속을 정리합니다.
+    }
+  }
 }
 
 function schedulePresenceReconcile() {
@@ -333,11 +432,22 @@ function sanitizeQuery(path, rawArgs) {
 }
 
 async function queryTranslator(path, rawArgs) {
+  const consentRevision = privacyConsentRevision;
+  if (privacyConsentGranted !== true) {
+    throw new Error("개인정보 안내 동의가 필요합니다.");
+  }
   const args = sanitizeQuery(path, rawArgs);
   const controller = new AbortController();
+  activeQueryControllers.add(controller);
   const timeout = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
 
   try {
+    if (
+      consentRevision !== privacyConsentRevision ||
+      privacyConsentGranted !== true
+    ) {
+      throw new Error("개인정보 안내 동의가 필요합니다.");
+    }
     const response = await fetch(QUERY_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -362,7 +472,15 @@ async function queryTranslator(path, rawArgs) {
     throw error;
   } finally {
     clearTimeout(timeout);
+    activeQueryControllers.delete(controller);
   }
+}
+
+function abortTranslatorQueries() {
+  for (const controller of activeQueryControllers) {
+    controller.abort();
+  }
+  activeQueryControllers.clear();
 }
 
 function isAllowedContentSender(sender) {
@@ -379,8 +497,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
+  if (request.type === "cutiestreet-open-privacy") {
+    chrome.runtime.openOptionsPage(() => {
+      const runtimeError = chrome.runtime.lastError;
+      sendResponse({
+        ok: !runtimeError,
+        error: runtimeError ? runtimeError.message : undefined
+      });
+    });
+    return true;
+  }
+
   if (request.type === "cutiestreet-presence-start") {
-    registerPresenceSurface(request, sender)
+    hasPrivacyConsent()
+      .then((granted) => {
+        if (!granted) {
+          throw new Error("개인정보 안내 동의가 필요합니다.");
+        }
+        return registerPresenceSurface(request, sender);
+      })
       .then(() => sendResponse({ ok: true }))
       .catch((error) => {
         sendResponse({
@@ -402,7 +537,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
-  queryTranslator(request.path, request.args)
+  hasPrivacyConsent()
+    .then((granted) => {
+      if (!granted) {
+        throw new Error("개인정보 안내 동의가 필요합니다.");
+      }
+      return queryTranslator(request.path, request.args);
+    })
     .then((value) => sendResponse({ ok: true, value }))
     .catch((error) => {
       sendResponse({
@@ -428,16 +569,31 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local" || !changes[ANONYMOUS_CLIENT_ID_KEY]) {
+  if (areaName !== "local") {
     return;
   }
-  const nextUserId = changes[ANONYMOUS_CLIENT_ID_KEY].newValue;
-  if (isValidUuid(nextUserId)) {
-    void rotatePresenceUserId(nextUserId);
+  if (changes[PRIVACY_CONSENT_KEY]) {
+    privacyConsentRevision += 1;
+    privacyConsentGranted =
+      Number(changes[PRIVACY_CONSENT_KEY].newValue) === PRIVACY_CONSENT_VERSION;
+    if (!privacyConsentGranted) {
+      abortTranslatorQueries();
+      void stopAllPresence();
+    }
+  }
+  if (changes[ANONYMOUS_CLIENT_ID_KEY]) {
+    const nextUserId = changes[ANONYMOUS_CLIENT_ID_KEY].newValue;
+    if (privacyConsentGranted === true && isValidUuid(nextUserId)) {
+      void rotatePresenceUserId(nextUserId);
+    }
   }
 });
 
 async function toggleOverlayInTab(tab) {
+  if (!(await hasPrivacyConsent())) {
+    await chrome.runtime.openOptionsPage();
+    return;
+  }
   if (!tab || !Number.isInteger(tab.id)) {
     return;
   }
@@ -458,4 +614,10 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await toggleOverlayInTab(activeTab);
+});
+
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") {
+    void chrome.runtime.openOptionsPage();
+  }
 });

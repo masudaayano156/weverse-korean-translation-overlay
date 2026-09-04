@@ -35,6 +35,10 @@ const cuteReactionSvg = fs.readFileSync(
 );
 
 assert.deepEqual(manifest.permissions, ["storage"]);
+assert.deepEqual(manifest.options_ui, {
+  page: "privacy.html",
+  open_in_tab: true
+});
 assert.deepEqual(manifest.host_permissions, [
   "https://weverse.io/*",
   "https://www.instagram.com/*",
@@ -156,6 +160,10 @@ assert.match(
   contentSource,
   /function ensureReactionClientId\(\)[\s\S]*crypto\.randomUUID\(\)[\s\S]*persistReactionClientId/
 );
+assert.match(backgroundSource, /function hasPrivacyConsent\(\)/);
+assert.match(backgroundSource, /if \(!granted\) \{\s*throw new Error\("개인정보 안내 동의가 필요합니다\."\)/);
+assert.match(contentSource, /function convexClient\(\) \{\s*if \(!state\.privacyConsent\)/);
+assert.match(identityBridgeSource, /chrome\.storage\.local\.get\(\[PRIVACY_CONSENT_KEY\]/);
 
 class FakeXMLHttpRequest {
   constructor() {
@@ -203,6 +211,7 @@ async function testPageHook() {
   const messages = [];
   const fetchCalls = [];
   const windowListeners = new Map();
+  let resolveDelayedText = null;
   const onAirStartAt = Date.now() - 60_000;
   const payload = {
     publishedAt: onAirStartAt + 3_000,
@@ -229,10 +238,16 @@ async function testPageHook() {
     const responsePayload = String(url).includes("1-54321")
       ? wrappedPayload
       : payload;
+    const delayText = String(url).includes("1-77777");
     return Promise.resolve({
       clone() {
         return {
           text() {
+            if (delayText) {
+              return new Promise((resolve) => {
+                resolveDelayedText = () => resolve(JSON.stringify(responsePayload));
+              });
+            }
             return Promise.resolve(JSON.stringify(responsePayload));
           }
         };
@@ -275,10 +290,25 @@ async function testPageHook() {
   });
 
   await fakeWindow.fetch(
+    "https://weverse.io/post/v1.0/post-1-00000?fieldSet=postV1"
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    messages.length,
+    0,
+    "동의 전에는 위버스 응답 내용을 읽어 방송 시각을 게시하면 안 됩니다."
+  );
+  fakeWindow.dispatchMessage({
+    source: "weverse-korean-overlay-content",
+    type: "privacy-consent",
+    granted: true
+  });
+
+  await fakeWindow.fetch(
     "https://weverse.io/post/v1.0/post-1-12345?fieldSet=postV1"
   );
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(fetchCalls.length, 1, "페이지의 원래 요청 외 요청이 없어야 합니다.");
+  assert.equal(fetchCalls.length, 2, "페이지의 원래 요청 외 요청이 없어야 합니다.");
   assert.equal(messages.length, 1);
   assert.equal(messages[0].targetOrigin, "https://weverse.io");
   assert.deepEqual(
@@ -297,7 +327,7 @@ async function testPageHook() {
     url: "https://global.apis.naver.com/post/v1.0/post-1-54321?fieldSet=postV1"
   });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(fetchCalls.length, 2);
+  assert.equal(fetchCalls.length, 3);
   assert.deepEqual(
     JSON.parse(JSON.stringify(messages.at(-1).value)),
     {
@@ -365,12 +395,57 @@ async function testPageHook() {
     "https://untrusted.example/post/v1.0/post-1-99999"
   );
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(fetchCalls.length, 3);
+  assert.equal(fetchCalls.length, 4);
   assert.equal(
     messages.some((message) => message.value.postId === "1-99999"),
     false,
     "허용되지 않은 출처 응답은 무시해야 합니다."
   );
+
+  const beforeDelayedFetch = messages.length;
+  await fakeWindow.fetch(
+    "https://weverse.io/post/v1.0/post-1-77777?fieldSet=postV1"
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof resolveDelayedText, "function");
+  fakeWindow.dispatchMessage({
+    source: "weverse-korean-overlay-content",
+    type: "privacy-consent",
+    granted: false
+  });
+  resolveDelayedText();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    messages.length,
+    beforeDelayedFetch,
+    "동의 철회 전에 시작한 fetch 응답도 철회 뒤에는 읽어 게시하면 안 됩니다."
+  );
+
+  fakeWindow.dispatchMessage({
+    source: "weverse-korean-overlay-content",
+    type: "privacy-consent",
+    granted: true
+  });
+  const inFlightXhr = new FakeXMLHttpRequest();
+  inFlightXhr.open("GET", "/post/v1.0/post-1-88888?fieldSet=postV1");
+  inFlightXhr.responseText = JSON.stringify(payload);
+  inFlightXhr.send();
+  fakeWindow.dispatchMessage({
+    source: "weverse-korean-overlay-content",
+    type: "privacy-consent",
+    granted: false
+  });
+  const beforeRevokedXhr = messages.length;
+  inFlightXhr.emit("load");
+  inFlightXhr.emit("loadend");
+  assert.equal(
+    messages.length,
+    beforeRevokedXhr,
+    "동의 철회 전에 시작한 XHR 응답도 철회 뒤에는 읽어 게시하면 안 됩니다."
+  );
+  for (const eventType of ["load", "abort", "error", "timeout", "loadend"]) {
+    assert.equal(inFlightXhr.listeners.get(eventType)?.length || 0, 0);
+  }
 }
 
 testPageHook()

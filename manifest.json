@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Weverse·Instagram 한국어 라이브 번역 오버레이",
-  "version": "1.15.2",
+  "version": "1.15.3",
   "description": "큐티스트리트 인간 번역기의 공개 번역을 Weverse와 Instagram 라이브 화면에 표시합니다.",
   "permissions": [
     "storage"
@@ -13,6 +13,10 @@
   ],
   "background": {
     "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "privacy.html",
+    "open_in_tab": true
   },
   "icons": {
     "16": "icons/icon16.png",

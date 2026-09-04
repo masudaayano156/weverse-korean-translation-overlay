@@ -36,6 +36,10 @@
   const REPLAY_OFFSET_LIMIT_MS = 10 * 60 * 1000;
   const REPLAY_CLOCK_VERSION = 4;
   const REACTION_CLIENT_ID_KEY = "weverseOverlayReactionClientIdV1";
+  const PRIVACY_CONSENT_KEY = "weverseOverlayPrivacyConsentV1";
+  const PRIVACY_CONSENT_VERSION = 1;
+  const PRIVACY_POLICY_URL =
+    "https://github.com/masudaayano156/weverse-korean-translation-overlay/blob/main/PRIVACY.md";
   const CUTE_REACTION_ICON_URL = chrome.runtime.getURL(
     "icons/reaction-cute-noto.svg"
   );
@@ -107,6 +111,8 @@
     messageAutoScrollPending: false,
     liveReleaseTimer: null,
     liveReleasedThrough: null,
+    privacyConsent: false,
+    privacyConsentRevision: 0,
     reactionClientId: "",
     qualityEnableEpoch: 0,
     qualityRunKey: null,
@@ -677,6 +683,92 @@
         flex: 1 1 auto;
         min-height: 0;
         flex-direction: column;
+      }
+
+      .privacy-notice {
+        display: flex;
+        flex: 1 1 auto;
+        min-height: 0;
+        padding: 18px 16px 16px;
+        overflow-y: auto;
+        flex-direction: column;
+        gap: 10px;
+        color: #dbeafe;
+        background: rgba(8, 10, 15, 0.97);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .privacy-notice[hidden] {
+        display: none !important;
+      }
+
+      .privacy-notice-title {
+        color: #fff;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .privacy-notice p {
+        margin: 0;
+      }
+
+      .privacy-notice-list {
+        margin: 0;
+        padding-left: 18px;
+        color: #cbd5e1;
+      }
+
+      .privacy-notice-list li + li {
+        margin-top: 4px;
+      }
+
+      .privacy-open-button,
+      .privacy-settings-button {
+        min-height: 34px;
+        padding: 0 11px;
+        color: #fff;
+        background: #0284c7;
+        border: 1px solid #38bdf8;
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .privacy-open-button:hover,
+      .privacy-open-button:focus-visible,
+      .privacy-settings-button:hover,
+      .privacy-settings-button:focus-visible {
+        background: #0ea5e9;
+        border-color: #7dd3fc;
+        outline: none;
+      }
+
+      .panel.awaiting-consent {
+        min-height: 260px;
+        background: rgba(8, 10, 15, 0.97);
+      }
+
+      .panel.awaiting-consent .quick-sync-bar,
+      .panel.awaiting-consent .session-bar,
+      .panel.awaiting-consent .settings,
+      .panel.awaiting-consent .translator-credit,
+      .panel.awaiting-consent .messages,
+      .panel.awaiting-consent .latest-message-button,
+      .panel.awaiting-consent .empty-state,
+      .panel.awaiting-consent .reaction-bar,
+      .panel.awaiting-consent .status-bar {
+        display: none !important;
+      }
+
+      .panel.awaiting-consent #settings-button {
+        opacity: 0.45;
+        pointer-events: none;
+      }
+
+      .privacy-settings-button {
+        width: 100%;
       }
 
       .session-bar {
@@ -1284,6 +1376,18 @@
         </div>
 
         <div class="body">
+          <div id="privacy-notice" class="privacy-notice" hidden>
+            <div class="privacy-notice-title">시작 전 개인정보 안내</div>
+            <p>공개 한국어 번역을 연결하고 라이브 접속자 수와 리액션을 제공하기 위해 다음 정보만 사용합니다.</p>
+            <ul class="privacy-notice-list">
+              <li>지원 방송의 공개 주소·방송 번호와 공개 번역 세션</li>
+              <li>접속자 중복 방지용 무작위 익명 번호와 선택한 리액션</li>
+              <li>브라우저에 저장되는 자막 표시·싱크 설정</li>
+            </ul>
+            <p>Weverse·Instagram 로그인 정보, 쿠키, 댓글, DM, 번역 작성 권한은 읽거나 전송하지 않습니다.</p>
+            <button id="privacy-open-button" class="privacy-open-button" type="button">전체 안내를 보고 동의하기</button>
+          </div>
+
           <div class="session-bar">
             <select id="session-select" class="session-select" aria-label="진행 중인 번역 선택">
               <option value="">진행 중인 번역을 찾는 중…</option>
@@ -1432,6 +1536,9 @@
             </div>
 
             <div class="settings-save-note">영상 클릭 우선은 자막 본문이 마우스를 가로채지 않게 하며 상단 버튼은 계속 사용할 수 있습니다. 배경 투명도 100%와 테두리 끔을 함께 쓰면 글자만 남습니다. 라이브 번역 중에는 익명 접속 신호를 보내 인간 번역기 사이트의 현재 시청자 수에 포함됩니다.</div>
+            <div class="setting-section">
+              <button id="privacy-settings-button" class="privacy-settings-button" type="button">개인정보 안내 및 동의 관리</button>
+            </div>
             <div class="settings-footer">
               <button id="reset-button" class="reset-button" type="button">표시 설정 초기화</button>
               <button id="save-view-button" class="save-view-button" type="button">저장하고 번역 보기</button>
@@ -1472,6 +1579,9 @@
   const dom = {
     panel: shadow.getElementById("panel"),
     reactionLayer: shadow.getElementById("reaction-layer"),
+    privacyNotice: shadow.getElementById("privacy-notice"),
+    privacyOpenButton: shadow.getElementById("privacy-open-button"),
+    privacySettingsButton: shadow.getElementById("privacy-settings-button"),
     restoreButton: shadow.getElementById("restore-button"),
     dragHandle: shadow.getElementById("drag-handle"),
     connectionDot: shadow.getElementById("connection-dot"),
@@ -1704,6 +1814,7 @@
   const HOOK_MESSAGE_SOURCE = "weverse-korean-overlay-page-hook";
   const HOOK_REQUEST_SOURCE = "weverse-korean-overlay-content";
   const HOOK_REQUEST_TYPE = "request-timing";
+  const HOOK_PRIVACY_TYPE = "privacy-consent";
   const hookedTimings = new Map();
 
   function postIdFromRoute(route) {
@@ -1711,6 +1822,9 @@
   }
 
   function requestHookedTiming() {
+    if (!state.privacyConsent) {
+      return;
+    }
     const postId = postIdFromRoute(location.pathname);
     if (!postId) {
       return;
@@ -1720,6 +1834,20 @@
         source: HOOK_REQUEST_SOURCE,
         type: HOOK_REQUEST_TYPE,
         postId
+      },
+      location.origin
+    );
+  }
+
+  function notifyPageHookPrivacyConsent() {
+    if (!isWeversePage()) {
+      return;
+    }
+    window.postMessage(
+      {
+        source: HOOK_REQUEST_SOURCE,
+        type: HOOK_PRIVACY_TYPE,
+        granted: state.privacyConsent
       },
       location.origin
     );
@@ -1753,7 +1881,7 @@
       return;
     }
     const data = event.data;
-    if (!data || data.source !== HOOK_MESSAGE_SOURCE) {
+    if (!state.privacyConsent || !data || data.source !== HOOK_MESSAGE_SOURCE) {
       return;
     }
     const postId = typeof data.postId === "string" ? data.postId : "";
@@ -1825,6 +1953,33 @@
     });
   }
 
+  function isPrivacyConsentGranted(value) {
+    return Number(value) === PRIVACY_CONSENT_VERSION;
+  }
+
+  function readPrivacyConsent() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([PRIVACY_CONSENT_KEY], (result) => {
+        if (chrome.runtime.lastError) {
+          resolve(false);
+          return;
+        }
+        resolve(isPrivacyConsentGranted(result?.[PRIVACY_CONSENT_KEY]));
+      });
+    });
+  }
+
+  function openPrivacyOptions() {
+    try {
+      chrome.runtime.sendMessage(
+        { type: "cutiestreet-open-privacy" },
+        () => void chrome.runtime.lastError
+      );
+    } catch (_error) {
+      // 확장프로그램이 다시 로드되는 순간의 일시 오류는 무시합니다.
+    }
+  }
+
   function isValidReactionClientId(value) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       String(value || "")
@@ -1854,6 +2009,9 @@
   }
 
   async function ensureReactionClientId() {
+    if (!state.privacyConsent) {
+      throw new Error("개인정보 안내 동의가 필요합니다.");
+    }
     if (isValidReactionClientId(state.reactionClientId)) {
       return state.reactionClientId;
     }
@@ -2013,6 +2171,7 @@
 
   function liveReactionsEnabled() {
     return Boolean(
+      state.privacyConsent &&
       state.settings.visible &&
       !state.settingsOpen &&
       !dom.panel.hidden &&
@@ -2350,6 +2509,7 @@
 
   function applySettingsToUi({ renderContent = false } = {}) {
     const settings = state.settings;
+    const awaitingConsent = !state.privacyConsent;
     const opacity = settings.backgroundOpacity / 100;
     dom.panel.style.setProperty("--panel-width", `${settings.panelWidth}px`);
     dom.panel.style.setProperty(
@@ -2368,6 +2528,7 @@
     );
 
     dom.panel.classList.toggle("settings-open", state.settingsOpen);
+    dom.panel.classList.toggle("awaiting-consent", awaitingConsent);
     dom.panel.classList.toggle("borderless", !settings.showBorder);
     dom.panel.classList.toggle("layout-locked", settings.layoutLocked);
     dom.panel.classList.toggle(
@@ -2376,11 +2537,13 @@
     );
     dom.panel.classList.toggle(
       "minimal",
-      settings.backgroundOpacity === 0 &&
+      !awaitingConsent &&
+        settings.backgroundOpacity === 0 &&
         !settings.showBorder &&
         !state.settingsOpen
     );
-    dom.settingsPanel.hidden = !state.settingsOpen;
+    dom.privacyNotice.hidden = !awaitingConsent;
+    dom.settingsPanel.hidden = awaitingConsent || !state.settingsOpen;
     const liveRoute = isLiveRoute();
     dom.panel.hidden = !settings.visible || !liveRoute;
     dom.restoreButton.hidden = settings.visible || !liveRoute;
@@ -2392,6 +2555,7 @@
       `채팅창 위치를 ${nextPositionLabel}로 이동`
     );
     dom.settingsButton.setAttribute("aria-pressed", String(state.settingsOpen));
+    dom.settingsButton.disabled = awaitingConsent;
     dom.lockButton.title = settings.layoutLocked
       ? "위치·크기 잠금 해제"
       : "위치·크기 잠금";
@@ -2448,6 +2612,10 @@
 
   function queryTranslator(path, args) {
     return new Promise((resolve, reject) => {
+      if (!state.privacyConsent) {
+        reject(new Error("개인정보 안내 동의가 필요합니다."));
+        return;
+      }
       chrome.runtime.sendMessage(
         { type: "cutiestreet-query", path, args },
         (response) => {
@@ -2483,6 +2651,21 @@
   function renderSessions() {
     const previousValue = state.selectedSession?._id || "";
     dom.sessionSelect.replaceChildren();
+
+    if (!state.privacyConsent) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "개인정보 안내 후 사용할 수 있습니다";
+      dom.sessionSelect.appendChild(option);
+      dom.sessionSelect.disabled = true;
+      dom.sessionTitle.textContent = "사용 전 안내와 동의가 필요합니다";
+      dom.liveLabel.textContent = "안내";
+      dom.liveLabel.classList.add("offline");
+      dom.sourceLink.href = PRIVACY_POLICY_URL;
+      setConnectionState("idle");
+      renderReactionControls();
+      return;
+    }
 
     if (state.sessions.length === 0) {
       const option = document.createElement("option");
@@ -2657,6 +2840,7 @@
   function syncLivePresence() {
     const roomId = state.selectedSession?._id || "";
     if (
+      !state.privacyConsent ||
       !core.isValidSessionId(roomId) ||
       !state.settings.visible ||
       !isLiveRoute() ||
@@ -2734,6 +2918,7 @@
       liveSync.retryTimer = null;
       liveSync.retryAt = 0;
       if (
+        state.privacyConsent &&
         state.settings.visible &&
         isLiveRoute() &&
         document.visibilityState !== "hidden"
@@ -2744,6 +2929,9 @@
   }
 
   function convexClient() {
+    if (!state.privacyConsent) {
+      return null;
+    }
     if (liveSync.client) {
       return liveSync.client;
     }
@@ -2853,6 +3041,9 @@
     value,
     { forceMessages = false, fromSubscription = false } = {}
   ) {
+    if (!state.privacyConsent) {
+      return;
+    }
     if (fromSubscription) {
       markLiveSyncHealthy();
       liveSync.sessionsRevision += 1;
@@ -3053,6 +3244,7 @@
 
   function startLiveSync({ forceMessages = false } = {}) {
     if (
+      !state.privacyConsent ||
       !state.settings.visible ||
       !isLiveRoute() ||
       document.visibilityState === "hidden"
@@ -3232,6 +3424,7 @@
     forceHttp = false
   } = {}) {
     if (
+      !state.privacyConsent ||
       !state.settings.visible ||
       !isLiveRoute() ||
       document.visibilityState === "hidden"
@@ -3914,6 +4107,7 @@
 
   async function pollMessages({ force = false } = {}) {
     if (
+      !state.privacyConsent ||
       !state.selectedSession ||
       !state.settings.visible ||
       !isLiveRoute() ||
@@ -4612,6 +4806,7 @@
 
   function enforceHighestQuality({ restart = false } = {}) {
     if (
+      !state.privacyConsent ||
       !isWeversePage() ||
       !state.settings.preferHighestQuality ||
       !isLiveRoute()
@@ -4652,7 +4847,11 @@
   }
 
   function resumeHighestQualityAutomation() {
-    if (!state.settings.preferHighestQuality || !state.settings.visible) {
+    if (
+      !state.privacyConsent ||
+      !state.settings.preferHighestQuality ||
+      !state.settings.visible
+    ) {
       return;
     }
     if (
@@ -5378,6 +5577,15 @@
   }
 
   function bindUiEvents() {
+    for (const button of [dom.privacyOpenButton, dom.privacySettingsButton]) {
+      button.addEventListener("click", (event) => {
+        if (!isTrustedUiEvent(event)) {
+          return;
+        }
+        openPrivacyOptions();
+      });
+    }
+
     dom.settingsButton.addEventListener("click", () => {
       state.settingsOpen = !state.settingsOpen;
       if (state.settingsOpen && state.messageRenderFrame !== null) {
@@ -5756,6 +5964,10 @@
     if (!request || request.type !== "toggle-cutiestreet-overlay") {
       return false;
     }
+    if (!state.privacyConsent) {
+      openPrivacyOptions();
+      return false;
+    }
     const nextVisible = !state.settings.visible;
     updateSettings({ visible: nextVisible });
     if (nextVisible) {
@@ -5811,19 +6023,69 @@
         ? nextClientId
         : "";
     }
+    if (areaName === "local" && changes[PRIVACY_CONSENT_KEY]) {
+      state.privacyConsentRevision += 1;
+      const privacyConsent = isPrivacyConsentGranted(
+        changes[PRIVACY_CONSENT_KEY].newValue
+      );
+      if (privacyConsent === state.privacyConsent) {
+        return;
+      }
+      state.privacyConsent = privacyConsent;
+      notifyPageHookPrivacyConsent();
+      if (!privacyConsent) {
+        state.settingsOpen = false;
+        stopLivePresence();
+        stopLiveSync({ clearSessions: true });
+        clearLiveReleaseTimer();
+        state.sessions = [];
+        state.selectedSession = null;
+        state.messages = [];
+        state.seenMessageIds.clear();
+        state.hasLoadedMessages = false;
+        state.messageApplyRevision += 1;
+        resetMessageViewportState();
+        applySettingsToUi({ renderContent: true });
+        renderSessions();
+        return;
+      }
+      applySettingsToUi({ renderContent: true });
+      renderSessions();
+      requestHookedTiming();
+      if (
+        state.settings.visible &&
+        isLiveRoute() &&
+        document.visibilityState !== "hidden"
+      ) {
+        state.lastSessionRefreshAt = 0;
+        void refreshSessions({ forceMessages: true });
+      }
+    }
   });
 
   async function initialize() {
     ensureHostParent();
     bindUiEvents();
-    const [storedSettings, replayAnchors, reactionClientId] = await Promise.all([
+    const privacyConsentRevision = state.privacyConsentRevision;
+    const [
+      storedSettings,
+      replayAnchors,
+      reactionClientId,
+      privacyConsent
+    ] = await Promise.all([
       readStoredSettings(),
       readReplayAnchors(),
-      readReactionClientId()
+      readReactionClientId(),
+      readPrivacyConsent()
     ]);
     state.settings = core.normalizeSettings(storedSettings);
     state.replayAnchors = replayAnchors;
     state.reactionClientId = reactionClientId;
+    if (privacyConsentRevision === state.privacyConsentRevision) {
+      state.privacyConsent = privacyConsent;
+    }
+    notifyPageHookPrivacyConsent();
+    requestHookedTiming();
     persistReplayAnchors();
     if (
       !storedSettings ||

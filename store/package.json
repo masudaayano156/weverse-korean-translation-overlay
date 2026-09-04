@@ -1,0 +1,12 @@
+{
+  "name": "weverse-korean-overlay-store-assets",
+  "private": true,
+  "version": "1.15.3",
+  "description": "Chrome Web Store image generation tools",
+  "scripts": {
+    "assets": "node generate-assets.cjs"
+  },
+  "devDependencies": {
+    "sharp": "0.35.4"
+  }
+}

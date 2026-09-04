@@ -133,7 +133,12 @@ assert.equal(
   stringConstant(contentSource, "HOOK_REQUEST_TYPE"),
   stringConstant(hookSource, "REQUEST_TYPE")
 );
+assert.equal(
+  stringConstant(contentSource, "HOOK_PRIVACY_TYPE"),
+  stringConstant(hookSource, "PRIVACY_TYPE")
+);
 const requestHookedTiming = namedFunctionSource(contentSource, "requestHookedTiming");
+assert.match(requestHookedTiming, /if\s*\(!state\.privacyConsent\)/);
 assert.match(requestHookedTiming, /source\s*:\s*HOOK_REQUEST_SOURCE/);
 assert.match(requestHookedTiming, /type\s*:\s*HOOK_REQUEST_TYPE/);
 const hookHandshake = sourceBetween(
@@ -145,6 +150,7 @@ assert.match(hookHandshake, /data\.source\s*!==\s*REQUEST_SOURCE/);
 assert.match(hookHandshake, /data\.type\s*!==\s*REQUEST_TYPE/);
 assert.match(hookHandshake, /recentTimings\.get\(data\.postId\)/);
 assert.match(hookHandshake, /postTiming\(data\.postId,\s*timing\)/);
+assert.match(hookHandshake, /data\?\.type\s*===\s*PRIVACY_TYPE/);
 assert.match(namedFunctionSource(hookSource, "postTiming"), /source\s*:\s*MESSAGE_SOURCE/);
 assert.match(namedFunctionSource(hookSource, "postTiming"), /videoType/);
 assert.match(namedFunctionSource(hookSource, "publish"), /video\?\.type/);
