@@ -59,6 +59,27 @@
         "content.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://cutiestreet-live-translator.vercel.app/*",
+        "https://cutiestreet.kro.kr/*"
+      ],
+      "js": [
+        "identity-bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/reaction-cute-noto.svg"
+      ],
+      "matches": [
+        "https://weverse.io/*",
+        "https://www.instagram.com/*"
+      ]
     }
   ]
 }

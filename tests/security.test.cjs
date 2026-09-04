@@ -21,8 +21,16 @@ const backgroundSource = fs.readFileSync(
   path.join(root, "background.js"),
   "utf8"
 );
+const identityBridgeSource = fs.readFileSync(
+  path.join(root, "identity-bridge.js"),
+  "utf8"
+);
 const vendorSource = fs.readFileSync(
   path.join(root, "vendor", "convex.js"),
+  "utf8"
+);
+const cuteReactionSvg = fs.readFileSync(
+  path.join(root, "icons", "reaction-cute-noto.svg"),
   "utf8"
 );
 
@@ -46,6 +54,21 @@ assert.deepEqual(manifest.content_scripts[1].matches, [
   "https://weverse.io/*",
   "https://www.instagram.com/*"
 ]);
+assert.deepEqual(manifest.content_scripts[2], {
+  matches: [
+    "https://cutiestreet-live-translator.vercel.app/*",
+    "https://cutiestreet.kro.kr/*"
+  ],
+  js: ["identity-bridge.js"],
+  run_at: "document_start"
+});
+assert.deepEqual(manifest.web_accessible_resources, [{
+  resources: ["icons/reaction-cute-noto.svg"],
+  matches: [
+    "https://weverse.io/*",
+    "https://www.instagram.com/*"
+  ]
+}]);
 
 const forbiddenPrivateRequestMarkers = [
   ["WEVERSE", "HMAC", "KEY"].join("_"),
@@ -64,35 +87,57 @@ assert.match(backgroundSource, /["']https:\/\/weverse\.io["']/);
 assert.match(backgroundSource, /["']https:\/\/www\.instagram\.com["']/);
 assert.match(
   backgroundSource,
-  /if\s*\(!isAllowedContentSender\(sender\)\)\s*\{\s*return false;/
+  /if\s*\(!request\s*\|\|\s*!isAllowedContentSender\(sender\)\)\s*\{\s*return false;/
 );
+assert.match(backgroundSource, /importScripts\("vendor\/convex\.js"\)/);
 assert.doesNotMatch(vendorSource, /\beval\s*\(|new\s+Function\s*\(/);
 assert.doesNotMatch(
   `${contentSource}\n${hookSource}`,
   /createElement\s*\(\s*["']script["']|import\s*\(\s*["']https?:/
 );
+assert.doesNotMatch(cuteReactionSvg, /<script\b|\bon\w+\s*=|javascript:/i);
 
-const mutationTargets = [...contentSource.matchAll(
+const contentMutationTargets = [...contentSource.matchAll(
   /\.mutation\(\s*["']([^"']+)["']/g
 )].map((match) => match[1]);
-assert.deepEqual(mutationTargets, [
+assert.deepEqual(contentMutationTargets, ["reactions:react"]);
+const backgroundMutationTargets = [...backgroundSource.matchAll(
+  /\.mutation\(\s*["']([^"']+)["']/g
+)].map((match) => match[1]);
+assert.deepEqual(backgroundMutationTargets, [
   "presence:disconnect",
-  "presence:heartbeat",
-  "reactions:react"
+  "presence:heartbeat"
 ]);
-const livePresenceSource = contentSource.slice(
-  contentSource.indexOf("function validPresenceSessionToken"),
-  contentSource.indexOf("function closeLiveSyncClient")
+const backgroundPresenceSource = backgroundSource.slice(
+  backgroundSource.indexOf("const presenceState"),
+  backgroundSource.indexOf("function sanitizeQuery")
 );
-assert.match(livePresenceSource, /client\.mutation\("presence:heartbeat"/);
+assert.match(backgroundPresenceSource, /client\.mutation\("presence:heartbeat"/);
 assert.match(
-  livePresenceSource,
-  /roomId:\s*livePresence\.roomId,[\s\S]*userId:\s*livePresence\.userId,[\s\S]*sessionId:\s*livePresence\.connectionId,[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
+  backgroundPresenceSource,
+  /roomId:\s*room\.roomId,[\s\S]*userId:\s*room\.userId,[\s\S]*sessionId:\s*room\.sessionId,[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
 );
-assert.match(livePresenceSource, /path:\s*"presence:disconnect"/);
+assert.match(backgroundPresenceSource, /client\.mutation\("presence:disconnect"/);
 assert.doesNotMatch(
-  livePresenceSource,
+  backgroundPresenceSource,
   /document\.cookie|localStorage|account|email|memberId|accessToken|authorization/i
+);
+assert.match(identityBridgeSource, /const SITE_CLIENT_ID_KEY\s*=\s*"client-id"/);
+assert.match(
+  identityBridgeSource,
+  /localStorage\.getItem\(SITE_CLIENT_ID_KEY\)/
+);
+assert.match(
+  identityBridgeSource,
+  /localStorage\.setItem\(SITE_CLIENT_ID_KEY,\s*clientId\)/
+);
+assert.match(
+  identityBridgeSource,
+  /chrome\.storage\.local\.set\(\{\s*\[EXTENSION_CLIENT_ID_KEY\]:\s*clientId\s*\}\)/
+);
+assert.doesNotMatch(
+  identityBridgeSource,
+  /translator-token|document\.cookie|account|email|memberId|accessToken|authorization/i
 );
 const sendReactionSource = contentSource.slice(
   contentSource.indexOf("async function sendReaction"),

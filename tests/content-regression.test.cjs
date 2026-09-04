@@ -12,6 +12,9 @@ const contentSource = fs
 const hookSource = fs
   .readFileSync(path.join(root, "page-hook.js"), "utf8")
   .replace(/\r\n?/g, "\n");
+const backgroundSource = fs
+  .readFileSync(path.join(root, "background.js"), "utf8")
+  .replace(/\r\n?/g, "\n");
 const core = require(path.join(root, "core.js"));
 
 function escapeRegExp(value) {
@@ -576,7 +579,8 @@ const reactionContext = {
     ["wow", {}]
   ]),
   MAX_SEEN_REACTION_IDS: 500,
-  MAX_REACTION_SNAPSHOT: 100,
+  MAX_REACTION_SNAPSHOT: 8,
+  REACTION_MAX_AGE_MS: 15_000,
   showReaction(key) {
     reactionShows.push(key);
   }
@@ -589,23 +593,32 @@ vm.runInNewContext(
   reactionContext
 );
 reactionContext.applyReactionSnapshot(
-  [{ tapId: "reaction_old_1", key: "heart" }],
+  [{ tapId: "reaction_old_1", key: "heart", _creationTime: Date.now() - 60_000 }],
   "route:session"
 );
 assert.deepEqual(reactionShows, [], "최초 과거 반응은 띄우면 안 됩니다.");
 reactionContext.applyReactionSnapshot(
   [
-    { tapId: "reaction_new_1", key: "wow" },
-    { tapId: "reaction_old_1", key: "heart" }
+    { tapId: "reaction_new_1", key: "wow", _creationTime: Date.now() },
+    { tapId: "reaction_old_1", key: "heart", _creationTime: Date.now() - 60_000 }
   ],
   "route:session"
 );
 assert.deepEqual(reactionShows, ["wow"], "새 반응만 한 번 띄워야 합니다.");
 reactionContext.applyReactionSnapshot(
-  [{ tapId: "reaction_new_1", key: "wow" }],
+  [{ tapId: "reaction_new_1", key: "wow", _creationTime: Date.now() }],
   "route:session"
 );
 assert.deepEqual(reactionShows, ["wow"], "같은 반응을 중복 재생하면 안 됩니다.");
+reactionContext.applyReactionSnapshot(
+  [{ tapId: "reaction_stale_1", key: "heart", _creationTime: Date.now() - 60_000 }],
+  "route:session"
+);
+assert.deepEqual(
+  reactionShows,
+  ["wow"],
+  "잠들었다 돌아온 탭에서 오래된 반응을 다시 띄우면 안 됩니다."
+);
 const sendReaction = namedFunctionSource(contentSource, "sendReaction");
 assert.match(sendReaction, /client\.mutation\("reactions:react"/);
 assert.match(
@@ -613,50 +626,99 @@ assert.match(
   /sessionId,[\s\S]*key:\s*reactionKey,[\s\S]*clientId,[\s\S]*tapId/
 );
 assert.match(sendReaction, /showReaction\(reactionKey,\s*button\)/);
+assert.match(
+  contentSource,
+  /chrome\.runtime\.getURL\(\s*"icons\/reaction-cute-noto\.svg"\s*\)/
+);
+assert.match(
+  contentSource,
+  /data-reaction-key="clap"[\s\S]*?<img class="reaction-icon" src="\$\{CUTE_REACTION_ICON_URL\}"/
+);
+const showReaction = namedFunctionSource(contentSource, "showReaction");
+assert.match(showReaction, /if\s*\(reaction\.iconUrl\)/);
+assert.match(showReaction, /icon\.src\s*=\s*reaction\.iconUrl/);
 
-// 실제 라이브를 오버레이로 보고 있을 때만 인간번역기 사이트와 같은
-// 익명 presence 하트비트를 보내며, 종료 시 즉시 연결 해제를 요청합니다.
-assert.match(contentSource, /const PRESENCE_HEARTBEAT_MS\s*=\s*60\s*\*\s*1000/);
-assert.match(
-  contentSource,
-  /const PRESENCE_MUTATION_URL\s*=\s*`\$\{CONVEX_URL\}\/api\/mutation`/
-);
-const runLivePresenceHeartbeat = namedFunctionSource(
-  contentSource,
-  "runLivePresenceHeartbeat"
-);
-assert.match(
-  runLivePresenceHeartbeat,
-  /client\.mutation\("presence:heartbeat"[\s\S]*roomId:\s*livePresence\.roomId[\s\S]*userId:\s*livePresence\.userId[\s\S]*sessionId:\s*livePresence\.connectionId[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
-);
+// 콘텐츠 탭은 시청 여부만 알리고, 실제 presence는 백그라운드가 브라우저당
+// 한 루프로 합쳐 처리합니다. 숨김/PIP는 시청 종료로 보지 않습니다.
+assert.match(contentSource, /const PRESENCE_SURFACE_REFRESH_MS\s*=\s*30\s*\*\s*1000/);
 const startLivePresence = namedFunctionSource(contentSource, "startLivePresence");
 assert.match(
   startLivePresence,
-  /JSON\.stringify\(\s*\[\s*livePresence\.pageId,\s*roomId,\s*userId\s*\]\s*\)/
+  /sendPresenceSignal\("cutiestreet-presence-start",\s*roomId\)/
 );
-assert.match(startLivePresence, /setInterval\([\s\S]*PRESENCE_HEARTBEAT_MS/);
-assert.match(startLivePresence, /runLivePresenceHeartbeat\(key\)/);
+assert.match(startLivePresence, /setInterval\([\s\S]*PRESENCE_SURFACE_REFRESH_MS/);
 const syncLivePresence = namedFunctionSource(contentSource, "syncLivePresence");
 assert.match(syncLivePresence, /state\.settings\.visible/);
 assert.match(syncLivePresence, /isLiveRoute\(\)/);
 assert.match(syncLivePresence, /isLiveTranslationMode\(\)/);
-assert.match(syncLivePresence, /document\.visibilityState\s*===\s*"hidden"/);
-assert.match(syncLivePresence, /ensureReactionClientId\(\)/);
-const queuePresenceDisconnect = namedFunctionSource(
-  contentSource,
-  "queuePresenceDisconnect"
+assert.doesNotMatch(syncLivePresence, /visibilityState/);
+const stopLivePresence = namedFunctionSource(contentSource, "stopLivePresence");
+assert.match(stopLivePresence, /!livePresence\.leaveSent/);
+assert.match(
+  stopLivePresence,
+  /sendPresenceSignal\("cutiestreet-presence-stop",\s*roomId\)/
 );
-assert.match(queuePresenceDisconnect, /navigator\.sendBeacon\(/);
-assert.match(queuePresenceDisconnect, /path:\s*"presence:disconnect"/);
-assert.match(queuePresenceDisconnect, /client\.mutation\("presence:disconnect"/);
 const closeLiveSyncClient = namedFunctionSource(
   contentSource,
   "closeLiveSyncClient"
 );
-assert.ok(
-  closeLiveSyncClient.indexOf("stopLivePresence()") <
-    closeLiveSyncClient.indexOf("client.close()"),
-  "실시간 연결을 닫기 전에 presence 종료를 요청해야 합니다."
+assert.doesNotMatch(
+  closeLiveSyncClient,
+  /stopLivePresence\(\)/,
+  "자막 WebSocket 재연결 때문에 시청자 집계를 끊으면 안 됩니다."
+);
+const visibilityHandlerSource = contentSource.slice(
+  contentSource.indexOf('document.addEventListener("visibilitychange"'),
+  contentSource.indexOf('window.addEventListener("pagehide"')
+);
+assert.doesNotMatch(visibilityHandlerSource, /stopLivePresence\(\)/);
+const pageHideHandlerSource = contentSource.slice(
+  contentSource.indexOf('window.addEventListener("pagehide"'),
+  contentSource.indexOf('window.addEventListener("pageshow"')
+);
+assert.match(pageHideHandlerSource, /if\s*\(!event\.persisted\)/);
+assert.match(pageHideHandlerSource, /stopLivePresence\(\)/);
+assert.match(backgroundSource, /const PRESENCE_HEARTBEAT_MS\s*=\s*60\s*\*\s*1000/);
+const beatPresenceRoom = namedFunctionSource(backgroundSource, "beatPresenceRoom");
+assert.match(beatPresenceRoom, /room\.beating/);
+assert.match(
+  beatPresenceRoom,
+  /client\.mutation\("presence:heartbeat"[\s\S]*roomId:\s*room\.roomId[\s\S]*userId:\s*room\.userId[\s\S]*sessionId:\s*room\.sessionId[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
+);
+assert.match(beatPresenceRoom, /room\.roomToken\s*=\s*roomToken/);
+assert.match(beatPresenceRoom, /room\.sessionToken\s*=\s*sessionToken/);
+const disconnectPresenceToken = namedFunctionSource(
+  backgroundSource,
+  "disconnectPresenceToken"
+);
+assert.match(
+  disconnectPresenceToken,
+  /presenceState\.disconnectedTokens\.has\(token\)/
+);
+assert.match(
+  disconnectPresenceToken,
+  /presenceState\.disconnectedTokens\.add\(token\)/
+);
+const updatePresenceHeartbeatTimer = namedFunctionSource(
+  backgroundSource,
+  "updatePresenceHeartbeatTimer"
+);
+assert.match(
+  updatePresenceHeartbeatTimer,
+  /for\s*\(const room of presenceState\.rooms\.values\(\)\)/
+);
+assert.match(updatePresenceHeartbeatTimer, /PRESENCE_HEARTBEAT_MS/);
+const registerPresenceSurface = namedFunctionSource(
+  backgroundSource,
+  "registerPresenceSurface"
+);
+assert.match(
+  registerPresenceSurface,
+  /surface\.tabId\s*===\s*tabId[\s\S]*presenceState\.surfaces\.delete\(registeredId\)/
+);
+assert.match(
+  backgroundSource,
+  /chrome\.storage\.onChanged[\s\S]*rotatePresenceUserId\(nextUserId\)/
 );
 assert.match(
   contentSource,
@@ -684,16 +746,21 @@ assert.match(
   /state\.drag[\s\S]*state\.resize[\s\S]*event\.isPrimary\s*===\s*false/
 );
 
-// 사용자 지정 위치의 크기 제한은 영상 크기가 아니라 viewport를 사용해야 합니다.
+// 영상 안에서 저장한 사용자 지정 위치는 창 크기가 바뀌어도 영상 아래로
+// 밀려나지 않아야 하며, 의도적으로 영상 밖에 둔 위치는 계속 허용합니다.
 const placeOverlay = namedFunctionSource(contentSource, "placeOverlay");
 assert.match(placeOverlay, /const customPosition\s*=\s*state\.settings\.position\s*===\s*"custom"/);
 assert.match(
   placeOverlay,
-  /customPosition\s*\?\s*window\.innerWidth\s*-\s*16\s*:\s*playerRect\.width\s*-\s*24/
+  /core\.customPlacementInsidePlayer\(state\.settings\.customPlacement\)/
 );
 assert.match(
   placeOverlay,
-  /customPosition\s*\?\s*window\.innerHeight\s*-\s*16\s*:\s*playerRect\.height\s*-\s*66/
+  /keepInsidePlayer\s*\?\s*playerRect\.width\s*-\s*24\s*:\s*window\.innerWidth\s*-\s*16/
+);
+assert.match(
+  placeOverlay,
+  /keepInsidePlayer\s*\?\s*playerRect\.height\s*-\s*66\s*:\s*window\.innerHeight\s*-\s*16/
 );
 assert.match(placeOverlay, /viewportWidth\s*:\s*window\.innerWidth/);
 assert.match(placeOverlay, /viewportHeight\s*:\s*window\.innerHeight/);

@@ -171,6 +171,8 @@ const customResult = core.calculatePlacement({
 });
 assert.equal(customResult.left, 350);
 assert.equal(customResult.top, 164);
+assert.equal(customResult.maxPanelHeight, 366);
+assert.equal(core.customPlacementInsidePlayer(custom), true);
 
 const outsideCustom = core.placementFromCoordinates({
   left: 50,
@@ -180,6 +182,7 @@ const outsideCustom = core.placementFromCoordinates({
 });
 assert.ok(outsideCustom.x < 0);
 assert.ok(outsideCustom.y < 0);
+assert.equal(core.customPlacementInsidePlayer(outsideCustom), false);
 assert.deepEqual(
   core.calculatePlacement({
     ...placementInput,
@@ -233,7 +236,27 @@ assert.deepEqual(
     position: "custom",
     customPlacement: zeroSpanCustom
   }),
-  { ...zeroSpanCoordinates, maxPanelHeight: 784 }
+  { left: 112, top: 62, maxPanelHeight: 366 }
+);
+
+const halfWidthPlayerInput = {
+  playerRect: {
+    left: 12,
+    top: 11,
+    right: 932,
+    bottom: 539,
+    width: 920,
+    height: 528
+  },
+  panelRect: { width: 390, height: 444 },
+  viewportWidth: 1259,
+  viewportHeight: 1033,
+  position: "custom",
+  customPlacement: { x: 1, y: 1 }
+};
+assert.deepEqual(
+  core.calculatePlacement(halfWidthPlayerInput),
+  { left: 530, top: 23, maxPanelHeight: 444 }
 );
 
 const sessions = [

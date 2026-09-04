@@ -249,6 +249,9 @@
 
     let left;
     let top;
+    const customInsidePlayer =
+      position === "custom" &&
+      customPlacementInsidePlayer(customPlacement);
 
     if (position === "custom" && customPlacement) {
       left = leftMinimum + horizontalSpace * customPlacement.x;
@@ -260,17 +263,39 @@
 
     const viewportLeftMaximum = Math.max(8, viewportWidth - panelRect.width - 8);
     const viewportTopMaximum = Math.max(8, viewportHeight - panelRect.height - 8);
+    const constrainedLeftMinimum = customInsidePlayer
+      ? Math.max(8, leftMinimum)
+      : 8;
+    const constrainedLeftMaximum = customInsidePlayer
+      ? Math.min(viewportLeftMaximum, Math.max(constrainedLeftMinimum, leftMaximum))
+      : viewportLeftMaximum;
+    const constrainedTopMinimum = customInsidePlayer
+      ? Math.max(8, topMinimum)
+      : 8;
+    const constrainedTopMaximum = customInsidePlayer
+      ? Math.min(viewportTopMaximum, Math.max(constrainedTopMinimum, topMaximum))
+      : viewportTopMaximum;
 
     return {
-      left: Math.round(clamp(left, 8, viewportLeftMaximum)),
-      top: Math.round(clamp(top, 8, viewportTopMaximum)),
-      maxPanelHeight: position === "custom"
+      left: Math.round(clamp(left, constrainedLeftMinimum, constrainedLeftMaximum)),
+      top: Math.round(clamp(top, constrainedTopMinimum, constrainedTopMaximum)),
+      maxPanelHeight: position === "custom" && !customInsidePlayer
         ? Math.max(150, Math.floor(viewportHeight - 16))
         : Math.max(
             150,
             Math.floor(playerRect.height - edge - bottomControls)
           )
     };
+  }
+
+  function customPlacementInsidePlayer(customPlacement) {
+    if (!customPlacement || typeof customPlacement !== "object") {
+      return false;
+    }
+    const x = Number(customPlacement.x);
+    const y = Number(customPlacement.y);
+    return Number.isFinite(x) && Number.isFinite(y) &&
+      x >= 0 && x <= 1 && y >= 0 && y <= 1;
   }
 
   function customPlacementSpan(availableSpace, playerSize, panelSize) {
@@ -664,6 +689,7 @@
     messageSubscriptionLimit,
     migrateReplayOffset,
     calculatePlacement,
+    customPlacementInsidePlayer,
     placementFromCoordinates,
     isValidSessionId,
     chooseLiveSession,

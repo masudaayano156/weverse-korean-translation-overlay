@@ -36,8 +36,16 @@
   const REPLAY_OFFSET_LIMIT_MS = 10 * 60 * 1000;
   const REPLAY_CLOCK_VERSION = 4;
   const REACTION_CLIENT_ID_KEY = "weverseOverlayReactionClientIdV1";
+  const CUTE_REACTION_ICON_URL = chrome.runtime.getURL(
+    "icons/reaction-cute-noto.svg"
+  );
   const REACTION_KEYS = Object.freeze([
-    { key: "clap", emoji: "🥹", label: "귀여워" },
+    {
+      key: "clap",
+      emoji: "🥹",
+      iconUrl: CUTE_REACTION_ICON_URL,
+      label: "귀여워"
+    },
     { key: "heart", emoji: "❤️", label: "사랑해요" },
     { key: "lol", emoji: "😂", label: "ㅋㅋㅋㅋ" },
     { key: "sob", emoji: "😭", label: "슬퍼요" },
@@ -48,10 +56,10 @@
     REACTION_KEYS.map((reaction) => [reaction.key, reaction])
   );
   const MAX_SEEN_REACTION_IDS = 500;
-  const MAX_REACTION_SNAPSHOT = 100;
+  const MAX_REACTION_SNAPSHOT = 8;
+  const REACTION_MAX_AGE_MS = 15 * 1000;
   const MAX_FLOATING_REACTIONS = 24;
-  const PRESENCE_HEARTBEAT_MS = 60 * 1000;
-  const PRESENCE_MUTATION_URL = `${CONVEX_URL}/api/mutation`;
+  const PRESENCE_SURFACE_REFRESH_MS = 30 * 1000;
 
   const state = {
     settings: core.normalizeSettings(),
@@ -207,6 +215,12 @@
         transform: translate(-50%, -50%);
         animation: reaction-float var(--reaction-duration, 1700ms) ease-out forwards;
         will-change: transform, opacity;
+      }
+
+      .reaction-float-icon {
+        display: block;
+        width: 1em;
+        height: 1em;
       }
 
       @keyframes reaction-float {
@@ -910,6 +924,14 @@
         cursor: default;
       }
 
+      .reaction-icon {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        vertical-align: middle;
+        pointer-events: none;
+      }
+
       .panel.minimal .reaction-bar {
         align-self: center;
         width: min(100%, 320px);
@@ -1420,7 +1442,7 @@
           <button id="latest-message-button" class="latest-message-button" type="button" title="가장 최근 자막으로 이동" aria-label="가장 최근 자막으로 이동" hidden>↓ 최신 자막</button>
           <div id="empty-state" class="empty-state">진행 중인 한국어 번역을 찾고 있습니다.</div>
           <div id="reaction-bar" class="reaction-bar" role="group" aria-label="인간 번역기 라이브 리액션" title="누르면 현재 공개 번역 세션에 익명 리액션이 전송됩니다." hidden>
-            <button class="reaction-button" type="button" data-reaction-key="clap" title="귀여워" aria-label="귀여워">🥹</button>
+            <button class="reaction-button" type="button" data-reaction-key="clap" title="귀여워" aria-label="귀여워"><img class="reaction-icon" src="${CUTE_REACTION_ICON_URL}" alt="" draggable="false"></button>
             <button class="reaction-button" type="button" data-reaction-key="heart" title="사랑해요" aria-label="사랑해요">❤️</button>
             <button class="reaction-button" type="button" data-reaction-key="lol" title="ㅋㅋㅋㅋ" aria-label="ㅋㅋㅋㅋ">😂</button>
             <button class="reaction-button" type="button" data-reaction-key="sob" title="슬퍼요" aria-label="슬퍼요">😭</button>
@@ -2058,7 +2080,16 @@
     const origin = reactionOrigin(sourceButton);
     const float = document.createElement("span");
     float.className = "reaction-float";
-    float.textContent = reaction.emoji;
+    if (reaction.iconUrl) {
+      const icon = document.createElement("img");
+      icon.className = "reaction-float-icon";
+      icon.src = reaction.iconUrl;
+      icon.alt = "";
+      icon.draggable = false;
+      float.appendChild(icon);
+    } else {
+      float.textContent = reaction.emoji;
+    }
     float.style.setProperty("--reaction-x", `${Math.round(origin.x)}px`);
     float.style.setProperty("--reaction-y", `${Math.round(origin.y)}px`);
     float.style.setProperty(
@@ -2531,15 +2562,11 @@
   };
 
   const livePresence = {
-    pageId: crypto.randomUUID(),
+    surfaceId: crypto.randomUUID(),
     key: null,
-    client: null,
     roomId: null,
-    userId: null,
-    connectionId: null,
-    sessionToken: null,
-    heartbeatTimer: null,
-    heartbeatPromise: null
+    refreshTimer: null,
+    leaveSent: false
   };
 
   function clearLiveSyncRetryTimer() {
@@ -2578,174 +2605,68 @@
     }
   }
 
-  function validPresenceSessionToken(value) {
-    return typeof value === "string" && value.length > 0 && value.length <= 2048
-      ? value
-      : "";
-  }
-
-  function queuePresenceDisconnect(sessionToken, client = liveSync.client) {
-    const token = validPresenceSessionToken(sessionToken);
-    if (!token) {
-      return;
-    }
-    const args = { sessionToken: token };
-    let beaconQueued = false;
+  function sendPresenceSignal(type, roomId) {
     try {
-      if (
-        typeof navigator.sendBeacon === "function" &&
-        typeof Blob === "function"
-      ) {
-        beaconQueued = navigator.sendBeacon(
-          PRESENCE_MUTATION_URL,
-          new Blob(
-            [JSON.stringify({ path: "presence:disconnect", args })],
-            { type: "application/json" }
-          )
-        );
-      }
+      chrome.runtime.sendMessage(
+        {
+          type,
+          roomId,
+          surfaceId: livePresence.surfaceId
+        },
+        () => void chrome.runtime.lastError
+      );
     } catch (_error) {
-      beaconQueued = false;
-    }
-    if (!beaconQueued && client && typeof client.mutation === "function") {
-      try {
-        Promise.resolve(
-          client.mutation("presence:disconnect", args)
-        ).catch(() => {});
-      } catch (_error) {
-        // 종료 중 연결이 이미 닫힌 경우는 서버 만료 처리에 맡깁니다.
-      }
+      // 백그라운드가 다시 시작되면 다음 등록 신호에서 복구합니다.
     }
   }
 
   function stopLivePresence() {
-    if (livePresence.heartbeatTimer !== null) {
-      clearInterval(livePresence.heartbeatTimer);
-      livePresence.heartbeatTimer = null;
+    if (livePresence.refreshTimer !== null) {
+      clearInterval(livePresence.refreshTimer);
+      livePresence.refreshTimer = null;
     }
-    const sessionToken = livePresence.sessionToken;
-    const client = livePresence.client;
+    const roomId = livePresence.roomId;
+    const shouldSendLeave = Boolean(livePresence.key && !livePresence.leaveSent);
     livePresence.key = null;
-    livePresence.client = null;
     livePresence.roomId = null;
-    livePresence.userId = null;
-    livePresence.connectionId = null;
-    livePresence.sessionToken = null;
-    livePresence.heartbeatPromise = null;
-    queuePresenceDisconnect(sessionToken, client);
-  }
-
-  async function runLivePresenceHeartbeat(key) {
-    if (livePresence.key !== key || livePresence.heartbeatPromise) {
-      return;
-    }
-    const client = livePresence.client;
-    if (!client || typeof client.mutation !== "function") {
-      return;
-    }
-    let request;
-    try {
-      request = Promise.resolve(
-        client.mutation("presence:heartbeat", {
-          roomId: livePresence.roomId,
-          userId: livePresence.userId,
-          sessionId: livePresence.connectionId,
-          interval: PRESENCE_HEARTBEAT_MS
-        })
-      );
-    } catch (_error) {
-      return;
-    }
-    livePresence.heartbeatPromise = request;
-    try {
-      const result = await request;
-      const sessionToken = validPresenceSessionToken(result?.sessionToken);
-      if (!sessionToken) {
-        return;
-      }
-      if (
-        livePresence.key !== key ||
-        livePresence.client !== client
-      ) {
-        queuePresenceDisconnect(sessionToken, client);
-        return;
-      }
-      livePresence.sessionToken = sessionToken;
-    } catch (_error) {
-      // 일시 실패는 다음 60초 하트비트에서 다시 시도합니다.
-    } finally {
-      if (livePresence.heartbeatPromise === request) {
-        livePresence.heartbeatPromise = null;
-      }
+    if (shouldSendLeave) {
+      livePresence.leaveSent = true;
+      sendPresenceSignal("cutiestreet-presence-stop", roomId);
     }
   }
 
-  function startLivePresence(client, roomId, userId) {
-    const key = `${state.routeGeneration}:${roomId}:${userId}`;
-    if (
-      livePresence.key === key &&
-      livePresence.client === client
-    ) {
+  function startLivePresence(roomId) {
+    const key = `${state.routeGeneration}:${roomId}`;
+    if (livePresence.key === key) {
       return;
     }
     stopLivePresence();
     livePresence.key = key;
-    livePresence.client = client;
     livePresence.roomId = roomId;
-    livePresence.userId = userId;
-    livePresence.connectionId = JSON.stringify([
-      livePresence.pageId,
-      roomId,
-      userId
-    ]);
-    livePresence.heartbeatTimer = setInterval(() => {
-      void runLivePresenceHeartbeat(key);
-    }, PRESENCE_HEARTBEAT_MS);
-    void runLivePresenceHeartbeat(key);
+    livePresence.leaveSent = false;
+    sendPresenceSignal("cutiestreet-presence-start", roomId);
+    livePresence.refreshTimer = setInterval(() => {
+      if (livePresence.key === key) {
+        sendPresenceSignal("cutiestreet-presence-start", roomId);
+      }
+    }, PRESENCE_SURFACE_REFRESH_MS);
   }
 
-  async function syncLivePresence() {
-    const client = liveSync.client;
+  function syncLivePresence() {
     const roomId = state.selectedSession?._id || "";
     if (
-      !client ||
-      typeof client.mutation !== "function" ||
       !core.isValidSessionId(roomId) ||
       !state.settings.visible ||
       !isLiveRoute() ||
-      !isLiveTranslationMode() ||
-      document.visibilityState === "hidden"
+      !isLiveTranslationMode()
     ) {
       stopLivePresence();
       return;
     }
-    if (
-      livePresence.key &&
-      (
-        livePresence.client !== client ||
-        livePresence.roomId !== roomId
-      )
-    ) {
-      stopLivePresence();
-    }
-    const requestGeneration = state.routeGeneration;
-    const userId = await ensureReactionClientId();
-    if (
-      liveSync.client !== client ||
-      requestGeneration !== state.routeGeneration ||
-      state.selectedSession?._id !== roomId ||
-      !state.settings.visible ||
-      !isLiveRoute() ||
-      !isLiveTranslationMode() ||
-      document.visibilityState === "hidden"
-    ) {
-      return;
-    }
-    startLivePresence(client, roomId, userId);
+    startLivePresence(roomId);
   }
 
   function closeLiveSyncClient() {
-    stopLivePresence();
     stopMessagesSubscription();
     stopReactionsSubscription();
     const connectionUnsubscribe = liveSync.connectionUnsubscribe;
@@ -3009,12 +2930,17 @@
       liveSync.reactionsReadyKey = key;
       return;
     }
+    const newestAllowedAt = Date.now() - REACTION_MAX_AGE_MS;
     for (const reaction of [...reactions].reverse()) {
       const id = reactionId(reaction);
       if (liveSync.seenReactionIds.has(id)) {
         continue;
       }
       rememberReactionId(id);
+      const createdAt = Number(reaction?._creationTime);
+      if (!Number.isFinite(createdAt) || createdAt < newestAllowedAt) {
+        continue;
+      }
       showReaction(reaction.key);
     }
   }
@@ -3068,6 +2994,7 @@
   }
 
   function syncMessagesSubscription({ force = false } = {}) {
+    syncLivePresence();
     const client = convexClient();
     const session = state.selectedSession;
     if (
@@ -3077,12 +3004,10 @@
       !state.settings.visible ||
       !isLiveRoute()
     ) {
-      stopLivePresence();
       stopMessagesSubscription();
       stopReactionsSubscription();
       return;
     }
-    void syncLivePresence();
     syncReactionsSubscription();
     const limit = core.messageSubscriptionLimit(session.messageCount);
     const key = `${state.routeGeneration}:${session._id}:${limit}`;
@@ -3208,7 +3133,7 @@
     );
     migrateReplayClockToOnAir();
     const selectedSessionId = state.selectedSession?._id || null;
-    void syncLivePresence();
+    syncLivePresence();
     const sessionChanged = previousSessionId !== selectedSessionId;
     const sameSession = Boolean(
       selectedSessionId && previousSessionId === selectedSessionId
@@ -5047,15 +4972,18 @@
     }
 
     const customPosition = state.settings.position === "custom";
+    const customInsidePlayer = customPosition &&
+      core.customPlacementInsidePlayer(state.settings.customPlacement);
+    const keepInsidePlayer = !customPosition || customInsidePlayer;
     const availableWidth = Math.max(
       180,
-      customPosition ? window.innerWidth - 16 : playerRect.width - 24
+      keepInsidePlayer ? playerRect.width - 24 : window.innerWidth - 16
     );
     const effectiveWidth = Math.min(state.settings.panelWidth, availableWidth);
     const maximumHeight = Math.max(
       150,
       Math.floor(
-        customPosition ? window.innerHeight - 16 : playerRect.height - 66
+        keepInsidePlayer ? playerRect.height - 66 : window.innerHeight - 16
       )
     );
     dom.panel.style.setProperty("--panel-width", `${Math.round(effectiveWidth)}px`);
@@ -5476,6 +5404,7 @@
       state.settingsOpen = false;
       updateSettings({ visible: false });
       pauseHighestQualityAutomation();
+      stopLivePresence();
       stopLiveSync();
       dom.restoreButton.focus({ preventScroll: true });
     });
@@ -5500,6 +5429,7 @@
       }
       state.manualSessionPath = location.pathname;
       state.selectedSession = selected;
+      syncLivePresence();
       clearLiveReleaseTimer();
       state.liveReleasedThrough = null;
       stopMessagesSubscription();
@@ -5718,6 +5648,7 @@
   function handleRouteOrVisibilityTick() {
     bindPlaybackVideo();
     if (location.pathname !== state.lastPathname) {
+      stopLivePresence();
       stopLiveSync({ clearSessions: true });
       state.lastPathname = location.pathname;
       state.routeGeneration += 1;
@@ -5785,6 +5716,7 @@
 
     if (!state.settings.visible || !liveRoute) {
       clearLiveReleaseTimer();
+      stopLivePresence();
       stopLiveSync({ clearSessions: true });
       return;
     }
@@ -5811,6 +5743,7 @@
       void refreshSessions({ forceMessages: true });
     } else {
       pauseHighestQualityAutomation();
+      stopLivePresence();
       stopLiveSync();
     }
     return false;
@@ -5838,6 +5771,7 @@
       scheduleLiveRelease();
       if (!state.settings.visible) {
         pauseHighestQualityAutomation();
+        stopLivePresence();
         stopLiveSync();
       } else if (!wasVisible && isLiveRoute()) {
         resumeHighestQualityAutomation();
@@ -5850,6 +5784,12 @@
       );
       renderReplaySyncControls();
       syncMessagesToPlayback({ force: true, forceBottom: true });
+    }
+    if (areaName === "local" && changes[REACTION_CLIENT_ID_KEY]) {
+      const nextClientId = changes[REACTION_CLIENT_ID_KEY].newValue;
+      state.reactionClientId = isValidReactionClientId(nextClientId)
+        ? nextClientId
+        : "";
     }
   });
 
@@ -5889,7 +5829,10 @@
         void refreshSessions({ forceMessages: true });
       }
     });
-    window.addEventListener("pagehide", () => {
+    window.addEventListener("pagehide", (event) => {
+      if (!event.persisted) {
+        stopLivePresence();
+      }
       stopLiveSync({ clearSessions: true });
       clearLiveReleaseTimer();
       cancelPendingMessageRender();
@@ -5899,6 +5842,12 @@
       state.playerMenuObserver?.disconnect();
       state.playerMenuObserver = null;
       state.playerMenuObserverRoot = null;
+    });
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted && state.settings.visible && isLiveRoute()) {
+        livePresence.key = null;
+        syncLivePresence();
+      }
     });
     document.addEventListener("fullscreenchange", () => {
       ensureHostParent();
