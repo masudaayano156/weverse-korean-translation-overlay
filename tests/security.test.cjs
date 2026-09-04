@@ -75,7 +75,25 @@ assert.doesNotMatch(
 const mutationTargets = [...contentSource.matchAll(
   /\.mutation\(\s*["']([^"']+)["']/g
 )].map((match) => match[1]);
-assert.deepEqual(mutationTargets, ["reactions:react"]);
+assert.deepEqual(mutationTargets, [
+  "presence:disconnect",
+  "presence:heartbeat",
+  "reactions:react"
+]);
+const livePresenceSource = contentSource.slice(
+  contentSource.indexOf("function validPresenceSessionToken"),
+  contentSource.indexOf("function closeLiveSyncClient")
+);
+assert.match(livePresenceSource, /client\.mutation\("presence:heartbeat"/);
+assert.match(
+  livePresenceSource,
+  /roomId:\s*livePresence\.roomId,[\s\S]*userId:\s*livePresence\.userId,[\s\S]*sessionId:\s*livePresence\.connectionId,[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
+);
+assert.match(livePresenceSource, /path:\s*"presence:disconnect"/);
+assert.doesNotMatch(
+  livePresenceSource,
+  /document\.cookie|localStorage|account|email|memberId|accessToken|authorization/i
+);
 const sendReactionSource = contentSource.slice(
   contentSource.indexOf("async function sendReaction"),
   contentSource.indexOf("function bindUiEvents")

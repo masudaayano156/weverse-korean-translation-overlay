@@ -614,6 +614,55 @@ assert.match(
 );
 assert.match(sendReaction, /showReaction\(reactionKey,\s*button\)/);
 
+// 실제 라이브를 오버레이로 보고 있을 때만 인간번역기 사이트와 같은
+// 익명 presence 하트비트를 보내며, 종료 시 즉시 연결 해제를 요청합니다.
+assert.match(contentSource, /const PRESENCE_HEARTBEAT_MS\s*=\s*60\s*\*\s*1000/);
+assert.match(
+  contentSource,
+  /const PRESENCE_MUTATION_URL\s*=\s*`\$\{CONVEX_URL\}\/api\/mutation`/
+);
+const runLivePresenceHeartbeat = namedFunctionSource(
+  contentSource,
+  "runLivePresenceHeartbeat"
+);
+assert.match(
+  runLivePresenceHeartbeat,
+  /client\.mutation\("presence:heartbeat"[\s\S]*roomId:\s*livePresence\.roomId[\s\S]*userId:\s*livePresence\.userId[\s\S]*sessionId:\s*livePresence\.connectionId[\s\S]*interval:\s*PRESENCE_HEARTBEAT_MS/
+);
+const startLivePresence = namedFunctionSource(contentSource, "startLivePresence");
+assert.match(
+  startLivePresence,
+  /JSON\.stringify\(\s*\[\s*livePresence\.pageId,\s*roomId,\s*userId\s*\]\s*\)/
+);
+assert.match(startLivePresence, /setInterval\([\s\S]*PRESENCE_HEARTBEAT_MS/);
+assert.match(startLivePresence, /runLivePresenceHeartbeat\(key\)/);
+const syncLivePresence = namedFunctionSource(contentSource, "syncLivePresence");
+assert.match(syncLivePresence, /state\.settings\.visible/);
+assert.match(syncLivePresence, /isLiveRoute\(\)/);
+assert.match(syncLivePresence, /isLiveTranslationMode\(\)/);
+assert.match(syncLivePresence, /document\.visibilityState\s*===\s*"hidden"/);
+assert.match(syncLivePresence, /ensureReactionClientId\(\)/);
+const queuePresenceDisconnect = namedFunctionSource(
+  contentSource,
+  "queuePresenceDisconnect"
+);
+assert.match(queuePresenceDisconnect, /navigator\.sendBeacon\(/);
+assert.match(queuePresenceDisconnect, /path:\s*"presence:disconnect"/);
+assert.match(queuePresenceDisconnect, /client\.mutation\("presence:disconnect"/);
+const closeLiveSyncClient = namedFunctionSource(
+  contentSource,
+  "closeLiveSyncClient"
+);
+assert.ok(
+  closeLiveSyncClient.indexOf("stopLivePresence()") <
+    closeLiveSyncClient.indexOf("client.close()"),
+  "실시간 연결을 닫기 전에 presence 종료를 요청해야 합니다."
+);
+assert.match(
+  contentSource,
+  /익명 접속 신호를 보내 인간 번역기 사이트의 현재 시청자 수에 포함됩니다/
+);
+
 // 사용자에게 보이는 배경 슬라이더는 일반적인 투명도 의미를 사용하되
 // 기존 저장값(불투명도)은 변환해 화면 모양을 그대로 보존해야 합니다.
 assert.match(contentSource, /<span>배경 투명도<\/span>/);

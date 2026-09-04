@@ -50,6 +50,8 @@
   const MAX_SEEN_REACTION_IDS = 500;
   const MAX_REACTION_SNAPSHOT = 100;
   const MAX_FLOATING_REACTIONS = 24;
+  const PRESENCE_HEARTBEAT_MS = 60 * 1000;
+  const PRESENCE_MUTATION_URL = `${CONVEX_URL}/api/mutation`;
 
   const state = {
     settings: core.normalizeSettings(),
@@ -1405,7 +1407,7 @@
               </label>
             </div>
 
-            <div class="settings-save-note">영상 클릭 우선은 자막 본문이 마우스를 가로채지 않게 하며 상단 버튼은 계속 사용할 수 있습니다. 배경 투명도 100%와 테두리 끔을 함께 쓰면 글자만 남습니다.</div>
+            <div class="settings-save-note">영상 클릭 우선은 자막 본문이 마우스를 가로채지 않게 하며 상단 버튼은 계속 사용할 수 있습니다. 배경 투명도 100%와 테두리 끔을 함께 쓰면 글자만 남습니다. 라이브 번역 중에는 익명 접속 신호를 보내 인간 번역기 사이트의 현재 시청자 수에 포함됩니다.</div>
             <div class="settings-footer">
               <button id="reset-button" class="reset-button" type="button">표시 설정 초기화</button>
               <button id="save-view-button" class="save-view-button" type="button">저장하고 번역 보기</button>
@@ -2528,6 +2530,18 @@
     fallingBack: false
   };
 
+  const livePresence = {
+    pageId: crypto.randomUUID(),
+    key: null,
+    client: null,
+    roomId: null,
+    userId: null,
+    connectionId: null,
+    sessionToken: null,
+    heartbeatTimer: null,
+    heartbeatPromise: null
+  };
+
   function clearLiveSyncRetryTimer() {
     if (liveSync.retryTimer !== null) {
       clearTimeout(liveSync.retryTimer);
@@ -2564,7 +2578,174 @@
     }
   }
 
+  function validPresenceSessionToken(value) {
+    return typeof value === "string" && value.length > 0 && value.length <= 2048
+      ? value
+      : "";
+  }
+
+  function queuePresenceDisconnect(sessionToken, client = liveSync.client) {
+    const token = validPresenceSessionToken(sessionToken);
+    if (!token) {
+      return;
+    }
+    const args = { sessionToken: token };
+    let beaconQueued = false;
+    try {
+      if (
+        typeof navigator.sendBeacon === "function" &&
+        typeof Blob === "function"
+      ) {
+        beaconQueued = navigator.sendBeacon(
+          PRESENCE_MUTATION_URL,
+          new Blob(
+            [JSON.stringify({ path: "presence:disconnect", args })],
+            { type: "application/json" }
+          )
+        );
+      }
+    } catch (_error) {
+      beaconQueued = false;
+    }
+    if (!beaconQueued && client && typeof client.mutation === "function") {
+      try {
+        Promise.resolve(
+          client.mutation("presence:disconnect", args)
+        ).catch(() => {});
+      } catch (_error) {
+        // 종료 중 연결이 이미 닫힌 경우는 서버 만료 처리에 맡깁니다.
+      }
+    }
+  }
+
+  function stopLivePresence() {
+    if (livePresence.heartbeatTimer !== null) {
+      clearInterval(livePresence.heartbeatTimer);
+      livePresence.heartbeatTimer = null;
+    }
+    const sessionToken = livePresence.sessionToken;
+    const client = livePresence.client;
+    livePresence.key = null;
+    livePresence.client = null;
+    livePresence.roomId = null;
+    livePresence.userId = null;
+    livePresence.connectionId = null;
+    livePresence.sessionToken = null;
+    livePresence.heartbeatPromise = null;
+    queuePresenceDisconnect(sessionToken, client);
+  }
+
+  async function runLivePresenceHeartbeat(key) {
+    if (livePresence.key !== key || livePresence.heartbeatPromise) {
+      return;
+    }
+    const client = livePresence.client;
+    if (!client || typeof client.mutation !== "function") {
+      return;
+    }
+    let request;
+    try {
+      request = Promise.resolve(
+        client.mutation("presence:heartbeat", {
+          roomId: livePresence.roomId,
+          userId: livePresence.userId,
+          sessionId: livePresence.connectionId,
+          interval: PRESENCE_HEARTBEAT_MS
+        })
+      );
+    } catch (_error) {
+      return;
+    }
+    livePresence.heartbeatPromise = request;
+    try {
+      const result = await request;
+      const sessionToken = validPresenceSessionToken(result?.sessionToken);
+      if (!sessionToken) {
+        return;
+      }
+      if (
+        livePresence.key !== key ||
+        livePresence.client !== client
+      ) {
+        queuePresenceDisconnect(sessionToken, client);
+        return;
+      }
+      livePresence.sessionToken = sessionToken;
+    } catch (_error) {
+      // 일시 실패는 다음 60초 하트비트에서 다시 시도합니다.
+    } finally {
+      if (livePresence.heartbeatPromise === request) {
+        livePresence.heartbeatPromise = null;
+      }
+    }
+  }
+
+  function startLivePresence(client, roomId, userId) {
+    const key = `${state.routeGeneration}:${roomId}:${userId}`;
+    if (
+      livePresence.key === key &&
+      livePresence.client === client
+    ) {
+      return;
+    }
+    stopLivePresence();
+    livePresence.key = key;
+    livePresence.client = client;
+    livePresence.roomId = roomId;
+    livePresence.userId = userId;
+    livePresence.connectionId = JSON.stringify([
+      livePresence.pageId,
+      roomId,
+      userId
+    ]);
+    livePresence.heartbeatTimer = setInterval(() => {
+      void runLivePresenceHeartbeat(key);
+    }, PRESENCE_HEARTBEAT_MS);
+    void runLivePresenceHeartbeat(key);
+  }
+
+  async function syncLivePresence() {
+    const client = liveSync.client;
+    const roomId = state.selectedSession?._id || "";
+    if (
+      !client ||
+      typeof client.mutation !== "function" ||
+      !core.isValidSessionId(roomId) ||
+      !state.settings.visible ||
+      !isLiveRoute() ||
+      !isLiveTranslationMode() ||
+      document.visibilityState === "hidden"
+    ) {
+      stopLivePresence();
+      return;
+    }
+    if (
+      livePresence.key &&
+      (
+        livePresence.client !== client ||
+        livePresence.roomId !== roomId
+      )
+    ) {
+      stopLivePresence();
+    }
+    const requestGeneration = state.routeGeneration;
+    const userId = await ensureReactionClientId();
+    if (
+      liveSync.client !== client ||
+      requestGeneration !== state.routeGeneration ||
+      state.selectedSession?._id !== roomId ||
+      !state.settings.visible ||
+      !isLiveRoute() ||
+      !isLiveTranslationMode() ||
+      document.visibilityState === "hidden"
+    ) {
+      return;
+    }
+    startLivePresence(client, roomId, userId);
+  }
+
   function closeLiveSyncClient() {
+    stopLivePresence();
     stopMessagesSubscription();
     stopReactionsSubscription();
     const connectionUnsubscribe = liveSync.connectionUnsubscribe;
@@ -2896,10 +3077,12 @@
       !state.settings.visible ||
       !isLiveRoute()
     ) {
+      stopLivePresence();
       stopMessagesSubscription();
       stopReactionsSubscription();
       return;
     }
+    void syncLivePresence();
     syncReactionsSubscription();
     const limit = core.messageSubscriptionLimit(session.messageCount);
     const key = `${state.routeGeneration}:${session._id}:${limit}`;
@@ -3025,6 +3208,7 @@
     );
     migrateReplayClockToOnAir();
     const selectedSessionId = state.selectedSession?._id || null;
+    void syncLivePresence();
     const sessionChanged = previousSessionId !== selectedSessionId;
     const sameSession = Boolean(
       selectedSessionId && previousSessionId === selectedSessionId
