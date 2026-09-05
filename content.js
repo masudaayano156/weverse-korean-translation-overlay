@@ -38,6 +38,7 @@
   const REACTION_CLIENT_ID_KEY = "weverseOverlayReactionClientIdV1";
   const PRIVACY_CONSENT_KEY = "weverseOverlayPrivacyConsentV1";
   const PRIVACY_CONSENT_VERSION = 1;
+  const PRIVACY_OPEN_TIMEOUT_MS = 5000;
   const PRIVACY_POLICY_URL =
     "https://github.com/masudaayano156/weverse-korean-translation-overlay/blob/main/PRIVACY.md";
   const CUTE_REACTION_ICON_URL = chrome.runtime.getURL(
@@ -113,6 +114,10 @@
     liveReleasedThrough: null,
     privacyConsent: false,
     privacyConsentRevision: 0,
+    privacyOpenRequestId: 0,
+    privacyOpenPending: false,
+    privacyOpenFailed: false,
+    privacyOpenTimer: null,
     reactionClientId: "",
     qualityEnableEpoch: 0,
     qualityRunKey: null,
@@ -686,6 +691,7 @@
       }
 
       .privacy-notice {
+        pointer-events: auto;
         display: flex;
         flex: 1 1 auto;
         min-height: 0;
@@ -700,6 +706,52 @@
       }
 
       .privacy-notice[hidden] {
+        display: none !important;
+      }
+
+      .privacy-feedback {
+        flex: 0 0 auto;
+        padding: 10px 12px;
+        color: #dbeafe;
+        background: rgba(8, 10, 15, 0.97);
+        font-size: 11px;
+        line-height: 1.5;
+        pointer-events: auto;
+      }
+
+      .privacy-feedback[hidden],
+      .privacy-recovery[hidden] {
+        display: none !important;
+      }
+
+      .privacy-feedback p {
+        margin: 0;
+      }
+
+      .privacy-recovery {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .privacy-open-button:disabled,
+      .privacy-settings-button:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+
+      .timing-notice {
+        flex: 0 0 auto;
+        padding: 8px 12px;
+        color: #fef3c7;
+        background: rgba(8, 10, 15, 0.92);
+        font-size: 11px;
+        line-height: 1.5;
+        pointer-events: auto;
+      }
+
+      .timing-notice[hidden] {
         display: none !important;
       }
 
@@ -1385,7 +1437,15 @@
               <li>브라우저에 저장되는 자막 표시·싱크 설정</li>
             </ul>
             <p>Weverse·Instagram 로그인 정보, 쿠키, 댓글, DM, 번역 작성 권한은 읽거나 전송하지 않습니다.</p>
-            <button id="privacy-open-button" class="privacy-open-button" type="button">전체 안내를 보고 동의하기</button>
+            <button id="privacy-open-button" class="privacy-open-button" type="button">전체 안내 열기 · 새 탭에서 동의</button>
+          </div>
+
+          <div id="privacy-feedback" class="privacy-feedback" hidden>
+            <p id="privacy-open-status" role="status" aria-live="polite" aria-atomic="true"></p>
+            <div id="privacy-recovery" class="privacy-recovery" hidden>
+              <button id="privacy-retry-button" class="privacy-open-button" type="button">다시 시도</button>
+              <button id="privacy-reload-button" class="privacy-open-button" type="button">방송 새로고침</button>
+            </div>
           </div>
 
           <div class="session-bar">
@@ -1545,6 +1605,10 @@
             </div>
           </div>
 
+          <div id="timing-notice" class="timing-notice" hidden>
+            정확한 방송 시작 시각을 확인하지 못했습니다. 싱크가 어긋나면 방송을 새로고침하거나 설정에서 수동 싱크를 맞춰 주세요.
+            <button id="timing-reload-button" class="sync-button" type="button">방송 새로고침</button>
+          </div>
           <div id="translator-credit" class="translator-credit" hidden></div>
           <ol id="messages" class="messages" aria-live="off" aria-label="한국어 번역 자막" hidden></ol>
           <div id="subtitle-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -1580,8 +1644,15 @@
     panel: shadow.getElementById("panel"),
     reactionLayer: shadow.getElementById("reaction-layer"),
     privacyNotice: shadow.getElementById("privacy-notice"),
+    timingNotice: shadow.getElementById("timing-notice"),
+    timingReloadButton: shadow.getElementById("timing-reload-button"),
     privacyOpenButton: shadow.getElementById("privacy-open-button"),
     privacySettingsButton: shadow.getElementById("privacy-settings-button"),
+    privacyFeedback: shadow.getElementById("privacy-feedback"),
+    privacyOpenStatus: shadow.getElementById("privacy-open-status"),
+    privacyRecovery: shadow.getElementById("privacy-recovery"),
+    privacyRetryButton: shadow.getElementById("privacy-retry-button"),
+    privacyReloadButton: shadow.getElementById("privacy-reload-button"),
     restoreButton: shadow.getElementById("restore-button"),
     dragHandle: shadow.getElementById("drag-handle"),
     connectionDot: shadow.getElementById("connection-dot"),
@@ -1969,15 +2040,69 @@
     });
   }
 
-  function openPrivacyOptions() {
+  function setPrivacyOpenFeedback(message, { pending = false, failed = false } = {}) {
+    state.privacyOpenPending = pending;
+    state.privacyOpenFailed = failed;
+    dom.privacyFeedback.hidden = !message;
+    dom.privacyOpenStatus.textContent = message;
+    dom.privacyRecovery.hidden = !failed;
+    for (const button of [dom.privacyOpenButton, dom.privacySettingsButton, dom.privacyRetryButton]) {
+      button.disabled = pending;
+      button.setAttribute("aria-busy", String(pending));
+    }
+  }
+
+  function resetPrivacyOpenFeedback() {
+    state.privacyOpenRequestId += 1;
+    clearTimeout(state.privacyOpenTimer);
+    state.privacyOpenTimer = null;
+    setPrivacyOpenFeedback("");
+  }
+
+  function openPrivacyOptions(event) {
+    if (!isTrustedUiEvent(event) || state.privacyOpenPending) {
+      return;
+    }
+    const requestId = ++state.privacyOpenRequestId;
+    const finish = (message, failed = false) => {
+      // A timeout, retry or consent change invalidates late callbacks.
+      if (requestId !== state.privacyOpenRequestId || !state.privacyOpenPending) {
+        return;
+      }
+      clearTimeout(state.privacyOpenTimer);
+      state.privacyOpenTimer = null;
+      setPrivacyOpenFeedback(message, { failed });
+    };
+    const failureMessage = "안내 탭을 열지 못했습니다. 다시 시도하거나 방송을 새로고침해 주세요. 계속되면 확장프로그램 관리 화면의 ‘확장프로그램 옵션’에서 열어 주세요.";
+    setPrivacyOpenFeedback("개인정보 안내 탭을 여는 중입니다…", { pending: true });
+    state.privacyOpenTimer = setTimeout(() => {
+      finish("응답이 없습니다. 다시 시도하거나 방송을 새로고침해 주세요. 확장프로그램 관리 화면의 ‘확장프로그램 옵션’에서도 안내를 열 수 있습니다.", true);
+    }, PRIVACY_OPEN_TIMEOUT_MS);
     try {
       chrome.runtime.sendMessage(
         { type: "cutiestreet-open-privacy" },
-        () => void chrome.runtime.lastError
+        (response) => {
+          // Read lastError even when this request has already timed out.
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError || response?.ok !== true) {
+            finish(failureMessage, true);
+            return;
+          }
+          finish(state.privacyConsent
+            ? "개인정보 안내 탭을 열었습니다. 해당 탭에서 동의를 관리할 수 있습니다."
+            : "안내 탭을 열었습니다. 새 탭에서 동의 항목을 체크한 뒤 ‘동의하고 사용하기’를 눌러 주세요.");
+        }
       );
     } catch (_error) {
-      // 확장프로그램이 다시 로드되는 순간의 일시 오류는 무시합니다.
+      finish(failureMessage, true);
     }
+  }
+
+  function reloadBroadcastForPrivacy(event) {
+    if (!isTrustedUiEvent(event) || !state.privacyOpenFailed) {
+      return;
+    }
+    location.reload();
   }
 
   function isValidReactionClientId(value) {
@@ -2425,6 +2550,7 @@
   }
 
   function renderReplaySyncControls() {
+    dom.timingNotice.hidden = !needsTimingReload();
     const isReplay = isReplayTranslationMode();
     renderReplayOffsetControls();
     dom.replaySyncSection.hidden = !isReplay;
@@ -2503,7 +2629,7 @@
         : hasExactOnAirStart
           ? `위버스의 초 단위 라이브 시작 시각 ${core.formatKoreanTime(state.broadcastInfo.onAirStartAt)}을 자동 기준으로 사용합니다. 어긋나는 예외 방송은 대사 하나를 직접 맞출 수 있습니다.`
           : hasBroadcastStart
-            ? `위버스 화면의 분 단위 시작 시각 ${core.formatKoreanTime(state.broadcastInfo.onAirStartAt)}을 임시 기준으로 사용합니다. 초 단위 시각이 도착하면 자동으로 전환됩니다.`
+            ? `위버스 화면의 분 단위 시작 시각 ${core.formatKoreanTime(state.broadcastInfo.onAirStartAt)}을 임시 기준으로 사용합니다. 정확한 시각을 놓친 경우 방송 새로고침 또는 수동 싱크를 사용해 주세요.`
             : "정확한 시작 시각을 확인할 수 없어 번역 세션 시각을 임시 기준으로 사용합니다.";
   }
 
@@ -2533,7 +2659,7 @@
     dom.panel.classList.toggle("layout-locked", settings.layoutLocked);
     dom.panel.classList.toggle(
       "video-click-priority",
-      settings.videoClickPriority && !state.settingsOpen
+      settings.videoClickPriority && !state.settingsOpen && !awaitingConsent
     );
     dom.panel.classList.toggle(
       "minimal",
@@ -4692,6 +4818,7 @@
       return;
     }
     if (
+      !state.privacyConsent ||
       !state.settings.preferHighestQuality ||
       !state.settings.visible ||
       !isLiveRoute() ||
@@ -5576,15 +5703,25 @@
     }
   }
 
-  function bindUiEvents() {
-    for (const button of [dom.privacyOpenButton, dom.privacySettingsButton]) {
-      button.addEventListener("click", (event) => {
-        if (!isTrustedUiEvent(event)) {
-          return;
-        }
-        openPrivacyOptions();
-      });
+  function needsTimingReload() {
+    return state.privacyConsent && isWeversePage() &&
+      isReplayTranslationMode() && state.broadcastInfo?.exactOnAirStart !== true &&
+      !currentReplayAnchor();
+  }
+
+  function reloadBroadcastForTiming(event) {
+    if (!isTrustedUiEvent(event) || !needsTimingReload()) {
+      return;
     }
+    location.reload();
+  }
+
+  function bindUiEvents() {
+    dom.timingReloadButton.addEventListener("click", reloadBroadcastForTiming);
+    for (const button of [dom.privacyOpenButton, dom.privacySettingsButton, dom.privacyRetryButton]) {
+      button.addEventListener("click", openPrivacyOptions);
+    }
+    dom.privacyReloadButton.addEventListener("click", reloadBroadcastForPrivacy);
 
     dom.settingsButton.addEventListener("click", () => {
       state.settingsOpen = !state.settingsOpen;
@@ -6032,9 +6169,12 @@
         return;
       }
       state.privacyConsent = privacyConsent;
+      resetPrivacyOpenFeedback();
       notifyPageHookPrivacyConsent();
       if (!privacyConsent) {
         state.settingsOpen = false;
+        pauseHighestQualityAutomation();
+        hookedTimings.clear();
         stopLivePresence();
         stopLiveSync({ clearSessions: true });
         clearLiveReleaseTimer();
@@ -6057,6 +6197,7 @@
         isLiveRoute() &&
         document.visibilityState !== "hidden"
       ) {
+        resumeHighestQualityAutomation();
         state.lastSessionRefreshAt = 0;
         void refreshSessions({ forceMessages: true });
       }
@@ -6076,7 +6217,13 @@
       readStoredSettings(),
       readReplayAnchors(),
       readReactionClientId(),
-      readPrivacyConsent()
+      readPrivacyConsent().then((granted) => {
+        if (privacyConsentRevision === state.privacyConsentRevision) {
+          state.privacyConsent = granted;
+          notifyPageHookPrivacyConsent();
+        }
+        return granted;
+      })
     ]);
     state.settings = core.normalizeSettings(storedSettings);
     state.replayAnchors = replayAnchors;

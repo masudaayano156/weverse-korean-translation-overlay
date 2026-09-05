@@ -6,6 +6,7 @@ const CONVEX_URL = "https://api.cutiestreet.kro.kr";
 const QUERY_URL = `${CONVEX_URL}/api/query`;
 const QUERY_TIMEOUT_MS = 10000;
 const PRESENCE_HEARTBEAT_MS = 60 * 1000;
+const PRESENCE_DISCONNECT_TIMEOUT_MS = 1500;
 const PRESENCE_SURFACE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SESSION_ID_PATTERN = /^[a-z0-9]{16,64}$/i;
@@ -335,9 +336,21 @@ async function stopAllPresence() {
   presenceState.client = null;
   presenceState.userId = "";
   presenceState.userIdPromise = null;
-  await Promise.allSettled(
-    staleRooms.map((room) => disconnectPresenceToken(room.sessionToken, client))
-  );
+  // 오프라인 mutation은 재연결까지 대기할 수 있습니다. 서버의 퇴장 응답을
+  // 무한정 기다리지 않고, 동의를 철회한 연결을 제한 시간 안에 닫습니다.
+  let disconnectTimer;
+  try {
+    await Promise.race([
+      Promise.allSettled(
+        staleRooms.map((room) => disconnectPresenceToken(room.sessionToken, client))
+      ),
+      new Promise((resolve) => {
+        disconnectTimer = setTimeout(resolve, PRESENCE_DISCONNECT_TIMEOUT_MS);
+      })
+    ]);
+  } finally {
+    clearTimeout(disconnectTimer);
+  }
   if (client && typeof client.close === "function") {
     try {
       await Promise.resolve(client.close());

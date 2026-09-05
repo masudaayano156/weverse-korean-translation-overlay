@@ -28,6 +28,7 @@
   const xhrObservation = Symbol("weverseKoreanOverlayObservation");
   const recentTimings = new Map();
   let privacyConsent = false;
+  let consentRevision = 0;
 
   function postIdFromUrl(url) {
     let parsedUrl;
@@ -129,6 +130,9 @@
       data?.type === PRIVACY_TYPE &&
       typeof data.granted === "boolean"
     ) {
+      if (privacyConsent !== data.granted) {
+        consentRevision += 1;
+      }
       privacyConsent = data.granted;
       if (!privacyConsent) {
         recentTimings.clear();
@@ -154,9 +158,8 @@
   if (typeof originalFetch === "function") {
     window.fetch = function patchedFetch(input) {
       const result = Reflect.apply(originalFetch, this, arguments);
-      if (!privacyConsent) {
-        return result;
-      }
+      const requestRevision = consentRevision;
+      const startedWithConsent = privacyConsent;
       try {
         const requestUrl = typeof input === "string" || input instanceof URL
           ? String(input)
@@ -165,13 +168,19 @@
         if (postId) {
           result.then(
             (response) => {
-              if (!privacyConsent) {
+              // 요청이 먼저 시작됐어도 응답 도착 전에 동의가 완료되면 읽을 수
+              // 있습니다. 철회 전 요청은 재동의 후에도 다시 채택하지 않습니다.
+              if (
+                !privacyConsent ||
+                consentRevision !== requestRevision + (startedWithConsent ? 0 : 1)
+              ) {
                 return;
               }
+              const responseRevision = consentRevision;
               try {
                 response.clone().text().then(
                   (text) => {
-                    if (privacyConsent) {
+                    if (privacyConsent && consentRevision === responseRevision) {
                       inspectText(postId, text);
                     }
                   },
@@ -216,10 +225,6 @@
 
   XMLHttpRequest.prototype.open = function patchedOpen(method, url) {
     clearXhrObservation(this);
-    if (!privacyConsent) {
-      this[xhrPostId] = null;
-      return Reflect.apply(originalOpen, this, arguments);
-    }
     try {
       this[xhrPostId] = postIdFromUrl(url);
     } catch (_error) {
@@ -231,16 +236,16 @@
   XMLHttpRequest.prototype.send = function patchedSend() {
     clearXhrObservation(this);
     try {
-      if (!privacyConsent) {
-        return Reflect.apply(originalSend, this, arguments);
-      }
       const postId = this[xhrPostId];
       if (postId) {
         const observation = {};
+        const requestRevision = consentRevision;
+        const startedWithConsent = privacyConsent;
         const onDone = () => clearXhrObservation(this, observation);
         const onLoad = () => {
           if (
             !privacyConsent ||
+            consentRevision !== requestRevision + (startedWithConsent ? 0 : 1) ||
             this[xhrObservation] !== observation ||
             this[xhrPostId] !== postId
           ) {
