@@ -1,4 +1,8 @@
-Weverse·Instagram 한국어 실시간 번역 오버레이
+# Weverse·Instagram 한국어 실시간 번역 오버레이
+
+## [Chrome 웹 스토어에서 설치](https://chromewebstore.google.com/detail/bboiaojhacijopijdleimokijdefiplb)
+
+Chrome·Microsoft Edge에서 설치할 수 있으며, 새 버전은 브라우저가 자동으로 업데이트합니다.
 
 <img width="1364" height="776" alt="image" src="https://github.com/user-attachments/assets/3505aaee-6644-4e9d-bbdf-a43518a09d58" />
 <img width="1361" height="774" alt="image" src="https://github.com/user-attachments/assets/fa2414cd-0a40-4f6c-b8db-90fc77a76612" />
@@ -10,8 +14,7 @@ Weverse·Instagram 한국어 실시간 번역 오버레이
 큐티스트리트 번역자분들의 소중한 인간 번역을 팬들이 영상과 함께 더욱 편하게 볼 수 있도록 연결해 주는 프로그램입니다.
 인간번역기 사이트 제작자 : 미유히메
 
-- 다운로드 및 소스코드:  
-  https://github.com/masudaayano156/weverse-korean-translation-overlay
+- 소스코드 및 버전 기록: [GitHub 저장소](https://github.com/masudaayano156/weverse-korean-translation-overlay) · [Releases](https://github.com/masudaayano156/weverse-korean-translation-overlay/releases)
 - 최신 버전: `v1.15.7`
 - 지원 브라우저: Chrome, Microsoft Edge
 
@@ -220,66 +223,21 @@ Weverse·Instagram 한국어 실시간 번역 오버레이
 
 # 설치 방법
 
-## 방법 1: GitHub Releases에서 받기
-
-1. 다음 GitHub 저장소에 접속합니다.  
-   https://github.com/masudaayano156/weverse-korean-translation-overlay
-
-2. 화면 오른쪽의 **Releases**를 누릅니다.
-
-3. 가장 최신 버전인 `v1.15.7`을 선택합니다.
-
-4. 페이지 아래의 **Assets**를 펼칩니다.
-
-5. **`weverse-instagram-korean-overlay-v1.15.7-chrome-web-store.zip`**을 눌러 파일을 내려받습니다.
-
-   이 파일이 보이지 않는 경우에는 **Source code (zip)**을 받아도 설치할 수 있습니다.
-
-6. 내려받은 ZIP 파일을 마우스 오른쪽 버튼으로 누르고 **압축 풀기** 또는 **모두 압축 풀기**를 선택합니다.
-
-압축파일 안에서 바로 설치하지 말고 반드시 먼저 압축을 풀어야 합니다.
-
-릴리스가 아직 표시되지 않는 경우에는 저장소의 초록색 **Code** 버튼을 누른 뒤 **Download ZIP**을 선택해도 됩니다.
-
 ## Chrome 설치
 
-1. Chrome 주소창에 다음 주소를 입력합니다.
+1. [Chrome 웹 스토어 설치 페이지](https://chromewebstore.google.com/detail/bboiaojhacijopijdleimokijdefiplb)를 엽니다.
+2. **Chrome에 추가**를 누르고 **확장 프로그램 추가**를 선택합니다.
+3. 설치 후 개인정보 안내를 확인하고 사용에 동의한 뒤, 열려 있던 위버스 또는 Instagram 라이브 페이지를 새로고침합니다.
 
-   `chrome://extensions`
-
-2. 확장프로그램 관리 화면 오른쪽 위의 **개발자 모드**를 켭니다.
-
-3. 화면 왼쪽 위에 나타나는 **압축해제된 확장 프로그램을 로드합니다** 버튼을 누릅니다.
-
-4. 앞에서 압축을 푼 폴더를 선택합니다.
-
-5. 반드시 `manifest.json` 파일이 바로 들어 있는 폴더를 선택해야 합니다.
-
-   예를 들어 압축을 푼 폴더 안에 같은 이름의 폴더가 한 번 더 있다면, 안쪽 폴더를 선택합니다.
-
-6. 확장프로그램 목록에 **Weverse·Instagram 한국어 라이브 번역 오버레이**가 나타나는지 확인합니다.
-
-7. 이미 위버스 또는 Instagram 라이브 페이지를 열어 두었다면 페이지를 한 번 새로고침합니다.
-
-8. Chrome 오른쪽 위 퍼즐 모양의 확장프로그램 버튼을 누른 뒤, 이 확장프로그램 옆의 고정 버튼을 누르면 아이콘을 항상 표시할 수 있습니다.
-
----
+브라우저 오른쪽 위 확장프로그램 메뉴에서 아이콘을 고정하면 편하게 켜고 끌 수 있습니다.
 
 ## Microsoft Edge 설치
 
-1. Edge 주소창에 다음 주소를 입력합니다.
+Edge에서도 위의 웹 스토어 링크를 열어 설치할 수 있습니다. **다른 스토어의 확장 허용** 안내가 나타나면 허용한 뒤 설치를 진행하세요. 설치 후 개인정보 안내에 동의하고 방송 페이지를 새로고침하면 됩니다.
 
-   `edge://extensions`
+이전에 수동으로 설치한 확장이 있다면 기존 확장은 꺼 두어 번역창이 중복으로 나타나지 않게 해주세요.
 
-2. 확장 관리 화면의 **개발자 모드**를 켭니다.
-
-3. **압축 풀린 파일 로드** 또는 **압축해제된 확장 로드** 버튼을 누릅니다.
-
-4. `manifest.json`이 바로 들어 있는 압축 해제 폴더를 선택합니다.
-
-5. 확장프로그램이 목록에 나타나면 위버스 또는 Instagram 라이브 페이지를 새로고침합니다.
-
-6. Edge 도구 모음의 확장 메뉴에서 아이콘을 고정하면 편하게 켜고 끌 수 있습니다.
+소스코드를 직접 수정하거나 시험하려는 분은 별도의 [개발자용 수동 설치 안내](MANUAL_INSTALL.md)를 참고하세요.
 
 ---
 
@@ -309,15 +267,9 @@ Weverse·Instagram 한국어 실시간 번역 오버레이
 
 ## 업데이트 방법
 
-새 버전이 공개되면 다음 순서로 업데이트하는 것이 가장 안전합니다.
+웹 스토어에서 설치한 확장은 브라우저가 자동으로 업데이트합니다. 새 버전이 게시된 뒤 실제 적용까지는 시간이 걸릴 수 있습니다.
 
-1. GitHub에서 새로운 ZIP 파일을 다운로드하고 압축을 풉니다.
-2. 기존에 Chrome이 불러오고 있는 확장프로그램 폴더에 새 파일을 덮어씁니다.
-3. `chrome://extensions` 또는 `edge://extensions`를 엽니다.
-4. 확장프로그램 카드의 새로고침 버튼을 누릅니다.
-5. 열려 있던 위버스 페이지도 새로고침합니다.
-
-기존 폴더를 유지하면서 파일을 교체하면 저장한 설정과 설치 상태를 관리하기 편합니다.
+업데이트가 적용된 뒤에는 열려 있던 위버스 또는 Instagram 라이브 페이지를 새로고침해 주세요. 다시 설치할 필요는 없습니다.
 
 ---
 
@@ -327,7 +279,7 @@ Weverse·Instagram 한국어 실시간 번역 오버레이
 
 1. 현재 주소가 위버스의 `/live/` 페이지, `LIVE 채팅 다시보기`가 있는 `/media/` 페이지 또는 지원 멤버의 Instagram `/{인스타 ID}/live/` 페이지인지 확인합니다.
 2. 확장프로그램 관리 화면에서 확장프로그램이 켜져 있는지 확인합니다.
-3. 확장프로그램을 새로고침합니다.
+3. 확장프로그램 관리 화면에서 확장을 껐다가 다시 켭니다.
 4. 현재 라이브 페이지도 새로고침합니다.
 5. 영상 모서리에 **한국어 번역 열기** 버튼이 남아 있는지 확인합니다.
 6. 브라우저 도구 모음의 확장프로그램 아이콘이나 `Alt + Shift + K`를 눌러봅니다.
