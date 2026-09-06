@@ -39,6 +39,7 @@
   const PRIVACY_CONSENT_KEY = "weverseOverlayPrivacyConsentV1";
   const PRIVACY_CONSENT_VERSION = 1;
   const PRIVACY_OPEN_TIMEOUT_MS = 5000;
+  const PRIVACY_FEEDBACK_DISMISS_MS = 4000;
   const PRIVACY_POLICY_URL =
     "https://github.com/masudaayano156/weverse-korean-translation-overlay/blob/main/PRIVACY.md";
   const CUTE_REACTION_ICON_URL = chrome.runtime.getURL(
@@ -118,6 +119,7 @@
     privacyOpenPending: false,
     privacyOpenFailed: false,
     privacyOpenTimer: null,
+    privacyFeedbackTimer: null,
     reactionClientId: "",
     qualityEnableEpoch: 0,
     qualityRunKey: null,
@@ -1541,7 +1543,7 @@
                 <span>채팅창 너비</span>
                 <output id="panel-width-value" class="setting-value">390px</output>
               </label>
-              <input id="panel-width" class="range-input" type="range" min="220" max="4096" step="10" value="390">
+              <input id="panel-width" class="range-input" type="range" min="220" max="390" step="1" value="390">
             </div>
 
             <div class="setting-section">
@@ -2041,6 +2043,8 @@
   }
 
   function setPrivacyOpenFeedback(message, { pending = false, failed = false } = {}) {
+    clearTimeout(state.privacyFeedbackTimer);
+    state.privacyFeedbackTimer = null;
     state.privacyOpenPending = pending;
     state.privacyOpenFailed = failed;
     dom.privacyFeedback.hidden = !message;
@@ -2049,6 +2053,15 @@
     for (const button of [dom.privacyOpenButton, dom.privacySettingsButton, dom.privacyRetryButton]) {
       button.disabled = pending;
       button.setAttribute("aria-busy", String(pending));
+    }
+    if (message && !pending && !failed) {
+      const requestId = state.privacyOpenRequestId;
+      state.privacyFeedbackTimer = setTimeout(() => {
+        if (requestId === state.privacyOpenRequestId &&
+            !state.privacyOpenPending && !state.privacyOpenFailed) {
+          setPrivacyOpenFeedback("");
+        }
+      }, PRIVACY_FEEDBACK_DISMISS_MS);
     }
   }
 
@@ -2637,7 +2650,8 @@
     const settings = state.settings;
     const awaitingConsent = !state.privacyConsent;
     const opacity = settings.backgroundOpacity / 100;
-    dom.panel.style.setProperty("--panel-width", `${settings.panelWidth}px`);
+    const widthLimits = renderPanelWidthControls();
+    dom.panel.style.setProperty("--panel-width", `${widthLimits.width}px`);
     dom.panel.style.setProperty(
       "--panel-height",
       settings.panelHeight === null ? "auto" : `${settings.panelHeight}px`
@@ -2704,8 +2718,6 @@
     const backgroundTransparency = 100 - settings.backgroundOpacity;
     dom.backgroundOpacity.value = String(backgroundTransparency);
     dom.backgroundOpacityValue.textContent = `${backgroundTransparency}%`;
-    dom.panelWidth.value = String(settings.panelWidth);
-    dom.panelWidthValue.textContent = `${settings.panelWidth}px`;
     dom.textColor.value = settings.textColor;
     dom.textColorValue.textContent = settings.textColor.toUpperCase();
     dom.textOutlineWidth.value = String(settings.textOutlineWidth);
@@ -5268,6 +5280,45 @@
     };
   }
 
+  function panelWidthLimits(playerRect = currentPlayerRect()) {
+    const keepInsidePlayer = state.settings.position !== "custom" ||
+      core.customPlacementInsidePlayer(state.settings.customPlacement);
+    const viewportWidth = window.innerWidth - 16;
+    const visiblePlayerWidth = Math.min(playerRect.right - 12, window.innerWidth - 8) -
+      Math.max(playerRect.left + 12, 8);
+    const maximum = Math.max(180, Math.floor(Math.min(
+      4096,
+      viewportWidth,
+      keepInsidePlayer ? Math.min(playerRect.width - 24, visiblePlayerWidth) : viewportWidth
+    )));
+    return {
+      minimum: Math.min(220, maximum),
+      maximum,
+      width: Math.min(state.settings.panelWidth, maximum)
+    };
+  }
+
+  function renderPanelWidthControls(playerRect = currentPlayerRect()) {
+    const limits = panelWidthLimits(playerRect);
+    dom.panelWidth.min = String(limits.minimum);
+    dom.panelWidth.max = String(limits.maximum);
+    dom.panelWidth.value = String(limits.width);
+    dom.panelWidth.disabled = limits.minimum === limits.maximum;
+    const label = `${limits.width}px / 최대 ${limits.maximum}px`;
+    if (dom.panelWidthValue.textContent !== label) {
+      dom.panelWidthValue.textContent = label;
+    }
+    dom.panelWidth.setAttribute("aria-valuetext", `${limits.width}픽셀, 최대 ${limits.maximum}픽셀`);
+    return limits;
+  }
+
+  function setPanelWidthFromInput() {
+    const limits = panelWidthLimits();
+    updateSettings({
+      panelWidth: clamp(Number(dom.panelWidth.value), limits.minimum, limits.maximum)
+    });
+  }
+
   function requestPlacement() {
     if (state.placementFrame !== null) {
       cancelAnimationFrame(state.placementFrame);
@@ -5304,18 +5355,14 @@
     const customInsidePlayer = customPosition &&
       core.customPlacementInsidePlayer(state.settings.customPlacement);
     const keepInsidePlayer = !customPosition || customInsidePlayer;
-    const availableWidth = Math.max(
-      180,
-      keepInsidePlayer ? playerRect.width - 24 : window.innerWidth - 16
-    );
-    const effectiveWidth = Math.min(state.settings.panelWidth, availableWidth);
+    const widthLimits = renderPanelWidthControls(playerRect);
     const maximumHeight = Math.max(
       150,
       Math.floor(
         keepInsidePlayer ? playerRect.height - 66 : window.innerHeight - 16
       )
     );
-    dom.panel.style.setProperty("--panel-width", `${Math.round(effectiveWidth)}px`);
+    dom.panel.style.setProperty("--panel-width", `${widthLimits.width}px`);
     dom.panel.style.setProperty(
       "--panel-height",
       state.settings.panelHeight === null
@@ -5835,9 +5882,7 @@
         backgroundOpacity: 100 - Number(dom.backgroundOpacity.value)
       });
     });
-    dom.panelWidth.addEventListener("input", () => {
-      updateSettings({ panelWidth: Number(dom.panelWidth.value) });
-    });
+    dom.panelWidth.addEventListener("input", setPanelWidthFromInput);
     dom.textColor.addEventListener("input", () => {
       updateSettings({ textColor: dom.textColor.value });
     });

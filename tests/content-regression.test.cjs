@@ -796,9 +796,10 @@ assert.match(
   /core\.customPlacementInsidePlayer\(state\.settings\.customPlacement\)/
 );
 assert.match(
-  placeOverlay,
-  /keepInsidePlayer\s*\?\s*playerRect\.width\s*-\s*24\s*:\s*window\.innerWidth\s*-\s*16/
+  namedFunctionSource(contentSource, "panelWidthLimits"),
+  /keepInsidePlayer\s*\?\s*Math\.min\(playerRect\.width\s*-\s*24,\s*visiblePlayerWidth\)/
 );
+assert.match(placeOverlay, /renderPanelWidthControls\(playerRect\)/);
 assert.match(
   placeOverlay,
   /keepInsidePlayer\s*\?\s*playerRect\.height\s*-\s*66\s*:\s*window\.innerHeight\s*-\s*16/

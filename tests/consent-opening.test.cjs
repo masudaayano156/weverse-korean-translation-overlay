@@ -17,7 +17,7 @@ function section(start, end) {
 function harness(mode = "pending") {
   const state = {
     privacyConsent: false, privacyOpenRequestId: 0, privacyOpenPending: false,
-    privacyOpenFailed: false, privacyOpenTimer: null
+    privacyOpenFailed: false, privacyOpenTimer: null, privacyFeedbackTimer: null
   };
   const dom = {};
   for (const key of ["privacyFeedback", "privacyOpenStatus", "privacyRecovery",
@@ -50,6 +50,7 @@ function harness(mode = "pending") {
     clearTimeout(id) { timers.delete(id); }
   });
   vm.runInContext(source.match(/const PRIVACY_OPEN_TIMEOUT_MS = \d+;/)[0], ctx);
+  vm.runInContext(source.match(/const PRIVACY_FEEDBACK_DISMISS_MS = \d+;/)[0], ctx);
   vm.runInContext(section("  function isTrustedUiEvent(", "  async function sendReaction("), ctx);
   vm.runInContext(section("  function setPrivacyOpenFeedback(", "  function isValidReactionClientId("), ctx);
   return {
@@ -59,9 +60,9 @@ function harness(mode = "pending") {
     click(trusted = true) { ctx.openPrivacyOptions({ isTrusted: trusted }); },
     reload(trusted = true) { ctx.reloadBroadcastForPrivacy({ isTrusted: trusted }); },
     reset() { ctx.resetPrivacyOpenFeedback(); },
-    expire() {
+    expire(expectedDelay = 5000) {
       const timer = [...timers.values()][0];
-      assert.equal(timer.delay, 5000);
+      assert.equal(timer.delay, expectedDelay);
       timer.fn();
     },
     respond(index, response, error = null) {
@@ -96,12 +97,19 @@ for (const mode of ["invalidated", "missing-receiver", "options-failed", "empty-
   assert.match(h.dom.privacyOpenStatus.textContent, /새 탭.*동의하고 사용하기/);
   assert.equal(h.dom.privacyRecovery.hidden, true);
   assert.equal(h.state.privacyConsent, false, "opening a tab is not accepting consent");
+  assert.equal(h.timers.size, 1);
+  h.expire(4000);
+  assert.equal(h.dom.privacyFeedback.hidden, true, "success feedback disappears automatically");
+  assert.equal(h.dom.privacyOpenStatus.textContent, "");
   assert.equal(h.timers.size, 0);
   h.state.privacyConsent = true;
   h.reset();
   assert.equal(h.dom.privacyFeedback.hidden, true);
   h.click();
   assert.match(h.dom.privacyOpenStatus.textContent, /동의를 관리/);
+  h.expire(4000);
+  assert.equal(h.dom.privacyFeedback.hidden, true, "already-consented viewers also get transient feedback");
+  assert.equal(h.timers.size, 0);
 }
 
 {
@@ -128,7 +136,29 @@ for (const mode of ["invalidated", "missing-receiver", "options-failed", "empty-
   h.respond(1, { ok: true });
   assert.equal(h.state.privacyOpenPending, false);
   assert.equal(h.state.privacyOpenFailed, false);
+  h.expire(4000);
   assert.equal(h.timers.size, 0);
+}
+
+{
+  const h = harness();
+  h.click();
+  h.respond(0, { ok: true });
+  const oldDismiss = [...h.timers.values()][0].fn;
+  h.click();
+  assert.equal(h.timers.size, 1, "a new request cancels the old success-dismiss timer");
+  oldDismiss();
+  assert.equal(h.dom.privacyFeedback.hidden, false, "old timer must not hide a pending request");
+  h.respond(1, { ok: false });
+  oldDismiss();
+  assert.equal(h.dom.privacyFeedback.hidden, false, "old timer must not hide a newer failure");
+  assert.equal(h.dom.privacyRecovery.hidden, false);
+  assert.equal(h.timers.size, 0, "recovery instructions must not auto-dismiss");
+  h.click();
+  h.respond(2, { ok: true });
+  h.reset();
+  assert.equal(h.timers.size, 0, "consent changes clear success-dismiss timers too");
+  assert.equal(h.dom.privacyFeedback.hidden, true);
 }
 
 {

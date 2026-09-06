@@ -1,6 +1,6 @@
 # Chrome 웹 스토어 등록용 입력 자료
 
-이 문서는 Chrome 웹 스토어 개발자 대시보드의 각 칸에 그대로 옮겨 적을 수 있도록 작성했습니다. 현재 배포 대상 버전은 `1.15.5`입니다.
+이 문서는 Chrome 웹 스토어 개발자 대시보드의 각 칸에 그대로 옮겨 적을 수 있도록 작성했습니다. 현재 로컬 패키지 버전은 `1.15.7`이며, 심사 중인 패키지는 자동으로 변경되지 않습니다.
 
 ## 기본 정보
 
@@ -134,7 +134,7 @@ The extension never requests or reads Weverse/Instagram passwords, cookies, auth
 2. 최초 등록비 결제
 3. 실제 상황에 맞는 Trader/Non-Trader 법적 신분 선택
 4. 이 문서의 내용을 대시보드 각 탭에 입력
-5. `dist/weverse-instagram-korean-overlay-v1.15.5-chrome-web-store.zip` 업로드
+5. `dist/weverse-instagram-korean-overlay-v1.15.7-chrome-web-store.zip` 업로드
 6. 생성된 이미지를 등록하고 미리보기에서 잘림 여부 확인
 7. 미등록 시험 설치 후 최종 `Submit for Review` 클릭
 8. 제공받은 방송 캡처를 스토어 홍보에 사용할 권한이 있는지 게시자가 최종 확인
